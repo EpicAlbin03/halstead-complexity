@@ -1,2 +1,2 @@
-def main() -> None:
-    print("Hello from halstead-complexity!")
+__app_name__ = "halstead-complexity"
+__version__ = "0.1.0"

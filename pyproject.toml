@@ -14,8 +14,13 @@ dependencies = [
 ]
 
 [project.scripts]
-hc = "halstead_complexity.main:app"
+hc = "halstead_complexity.cli:app"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]
