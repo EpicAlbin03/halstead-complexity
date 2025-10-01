@@ -1,0 +1,21 @@
+[project]
+name = "halstead-complexity"
+version = "0.1.0"
+description = "Measure Halstead code complexity"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "EpicAlbin03" }
+]
+keywords = ["halstead", "code complexity"]
+requires-python = ">=3.12"
+dependencies = [
+    "typer>=0.19.2",
+]
+
+[project.scripts]
+hc = "halstead_complexity.main:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
