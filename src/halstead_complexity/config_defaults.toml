@@ -1,0 +1,116 @@
+default_language = "python"
+
+[languages.python]
+comment = ["#"]
+extensions = [".py"]
+excluded = ["__pycache__", ".pytest_cache"]
+paired_delimiters_single_operator = false
+keywords = [
+  "and",
+  "as",
+  "assert",
+  "async",
+  "await",
+  "break",
+  "class",
+  "continue",
+  "def",
+  "del",
+  "elif",
+  "else",
+  "except",
+  "finally",
+  "for",
+  "from",
+  "global",
+  "if",
+  "import",
+  "in",
+  "is",
+  "lambda",
+  "nonlocal",
+  "not",
+  "or",
+  "pass",
+  "raise",
+  "return",
+  "try",
+  "while",
+  "with",
+  "yield"
+]
+symbols = [
+  "(",
+  ")",
+  "[",
+  "]",
+  ":",
+  ",",
+  ";",
+  "+",
+  "-",
+  "*",
+  "/",
+  "|",
+  "&",
+  "<",
+  ">",
+  "=",
+  ".",
+  "%",
+  "{",
+  "}",
+  "==",
+  "!=",
+  "<=",
+  ">=",
+  "~",
+  "^",
+  "<<",
+  ">>",
+  "**",
+  "+=",
+  "-=",
+  "*=",
+  "/=",
+  "%=",
+  "&=",
+  "|=",
+  "^=",
+  "<<=",
+  ">>=",
+  "**=",
+  "//",
+  "//=",
+  "@",
+  "@=",
+  "->",
+  "...",
+  ":=",
+  "!"
+]
+operand_node_types = ["identifier", "string", "integer", "float", "number"]
+statement_node_types = [
+  "expression_statement",
+  "assignment",
+  "return_statement",
+  "if_statement",
+  "else_clause",
+  "for_statement",
+  "while_statement",
+  "function_definition",
+  "class_definition",
+  "import_statement",
+  "import_from_statement",
+  "with_statement",
+  "try_statement",
+  "match_statement"
+]
+
+[[languages.python.multiline_delimiters]]
+start = "\"\"\""
+end = "\"\"\""
+
+[[languages.python.multiline_delimiters]]
+start = "'''"
+end = "'''"
