@@ -28,6 +28,8 @@ class LanguageConfig(BaseModel):
     comment: tuple[str, ...] = Field(default_factory=tuple)
     extensions: tuple[str, ...] = Field(default_factory=tuple)
     excluded: tuple[str, ...] = Field(default_factory=tuple)
+    statement_types: tuple[str, ...] = Field(default_factory=tuple)
+    operand_types: tuple[str, ...] = Field(default_factory=tuple)
     keywords: tuple[str, ...] = Field(default_factory=tuple)
     symbols: tuple[str, ...] = Field(default_factory=tuple)
     multi_word_operators: tuple[str, ...] = Field(default_factory=tuple)
@@ -65,6 +67,7 @@ class ConfZConfig(BaseConfig):
 
     default_language: str
     braces_single_operator: bool
+    template_literal_single_operand: bool
     languages: Dict[str, LanguageConfig]
 
     CONFIG_SOURCES = [

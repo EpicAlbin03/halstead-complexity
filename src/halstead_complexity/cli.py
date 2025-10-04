@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -6,6 +7,7 @@ import typer
 from halstead_complexity import __app_name__, __version__
 
 from .config import Config, ConfZConfig, get_config_source
+from .metrics.analysis import analyze_path, display_report
 
 app = typer.Typer()
 config_app = typer.Typer(help="Manage Halstead Complexity configuration files.")
@@ -182,5 +184,87 @@ def config_path(
 
 
 @app.command()
-def analyze() -> None:
-    print(ConfZConfig().default_language)
+def analyze(
+    path: str = typer.Argument(..., help="Path to file or directory to analyze"),
+    hal: bool = typer.Option(False, "--hal", help="Only show Halstead metrics"),
+    raw: bool = typer.Option(False, "--raw", help="Only show raw metrics"),
+    tokens: bool = typer.Option(False, "--tokens", help="Show operators and operands"),
+    silence: bool = typer.Option(
+        False, "--silence", help="Only output success message"
+    ),
+    output: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Write report to file"
+    ),
+    config_path: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file"
+    ),
+) -> None:
+    """Analyze source code file or directory for complexity metrics."""
+
+    # Load configuration
+    if config_path:
+        # Load custom config from specified path
+        config_file = Path(config_path)
+        if not config_file.exists():
+            typer.secho(
+                f"Error: Configuration file not found: {config_path}",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(1)
+
+        # For now, use default config (custom config loading can be enhanced later)
+        config = ConfZConfig()
+    else:
+        config = ConfZConfig()
+
+    # Analyze the path
+    target_path = Path(path)
+    if not target_path.exists():
+        typer.secho(
+            f"Error: Path not found: {path}",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    result = analyze_path(target_path, config)
+
+    if result is None:
+        typer.secho(
+            f"Error: Unable to analyze path: {path}",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    # Output report
+    if output:
+        # Write Rich table report to file
+        output_file = Path(output)
+        try:
+            display_report(result, hal, raw, tokens, output_file=output_file)
+            if silence:
+                typer.secho(
+                    f"Analysis completed successfully. Report written to: {output}",
+                    fg=typer.colors.GREEN,
+                )
+            else:
+                typer.secho(
+                    f"Report written to: {output}",
+                    fg=typer.colors.GREEN,
+                )
+        except Exception as e:
+            typer.secho(
+                f"Error writing to file: {e}",
+                fg=typer.colors.RED,
+                err=True,
+            )
+            raise typer.Exit(1)
+    else:
+        # If no output file, silence mode just shows success message
+        if silence:
+            typer.secho("Analysis completed successfully.", fg=typer.colors.GREEN)
+        else:
+            # Display Rich tables to console
+            display_report(result, hal, raw, tokens)

@@ -1,0 +1,39 @@
+Analysis Report for Directory: src/halstead_complexity/examples
+Files analyzed: 2
+
+Aggregated Raw Metrics                  
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┓
+┃ Metric                       ┃ Value ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━┩
+│ LOC (Lines of Code)          │   213 │
+│ LLOC (Logical Lines of Code) │   178 │
+│ SLOC (Source Lines of Code)  │   136 │
+│ Comments                     │     8 │
+│ Multi-line strings           │    21 │
+│ Blank lines                  │    48 │
+└──────────────────────────────┴───────┘
+
+Aggregated Halstead Metrics                   
+┏━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┓
+┃ Metric                  ┃            Value ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━┩
+│ η1 (Distinct operators) │               35 │
+│ η2 (Distinct operands)  │              142 │
+│ N1 (Total operators)    │              566 │
+│ N2 (Total operands)     │              459 │
+│ Vocabulary (η)          │              177 │
+│ Length (N)              │             1025 │
+│ Volume (V)              │          7654.30 │
+│ Difficulty (D)          │            56.57 │
+│ Effort (E)              │        432979.79 │
+│ Time (T)                │ 24054.43 seconds │
+│ Delivered Bugs (B)      │           2.5514 │
+└─────────────────────────┴──────────────────┘
+
+Individual Files 
+┏━━━━━━━━━━━━━━━┓
+┃ File          ┃
+┡━━━━━━━━━━━━━━━┩
+│ calculator.py │
+│ is_odd.py     │
+└───────────────┘
