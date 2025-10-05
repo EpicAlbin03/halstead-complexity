@@ -28,7 +28,6 @@ CONFIG_OPTIONS = {
 
 
 def _version_callback(value: bool) -> None:
-    """Callback to display the application version."""
     if value:
         typer.echo(f"{__app_name__} v{__version__}")
         raise typer.Exit()
@@ -46,7 +45,6 @@ def main(
         is_eager=True,
     ),
 ) -> None:
-    """Version command for the main CLI. If no subcommand is provided, show help."""
     if ctx.invoked_subcommand is None:
         typer.echo(ctx.get_help())
         raise typer.Exit()
@@ -57,7 +55,6 @@ def config_init(
     local: bool = CONFIG_OPTIONS["local"],
     global_: bool = CONFIG_OPTIONS["global"],
 ) -> None:
-    """Initialize a new configuration file with default values."""
     source = get_config_source(local, global_)
     config = Config(source=source)
 
@@ -69,7 +66,7 @@ def config_init(
         )
     except FileExistsError:
         typer.secho(
-            f"Error: Configuration file already exists at {config.source_path}",
+            f"Error: Configuration file already exists at: {config.source_path}",
             fg=typer.colors.RED,
             err=True,
         )
@@ -85,7 +82,6 @@ def config_get(
     local: bool = CONFIG_OPTIONS["local"],
     global_: bool = CONFIG_OPTIONS["global"],
 ) -> None:
-    """Get a configuration value by key (use dot notation for nested keys)."""
     source = get_config_source(local, global_)
     config = Config(source=source)
 
@@ -116,7 +112,6 @@ def config_set(
     local: bool = CONFIG_OPTIONS["local"],
     global_: bool = CONFIG_OPTIONS["global"],
 ) -> None:
-    """Set a configuration value (use dot notation for nested keys)."""
     source = get_config_source(local, global_)
     config = Config(source=source)
 
@@ -146,7 +141,6 @@ def config_list(
     local: bool = CONFIG_OPTIONS["local"],
     global_: bool = CONFIG_OPTIONS["global"],
 ) -> None:
-    """List all configuration values from the current source."""
     source = get_config_source(local, global_)
     config = Config(source=source)
 
@@ -169,16 +163,15 @@ def config_path(
     local: bool = CONFIG_OPTIONS["local"],
     global_: bool = CONFIG_OPTIONS["global"],
 ) -> None:
-    """Show the path to the configuration file."""
     source = get_config_source(local, global_)
     config = Config(source=source)
-
     path = config.source_path
-    if path:
+
+    if path and path.exists():
         typer.echo(str(path))
     else:
         typer.secho(
-            "No path available (using default configuration)",
+            "Using default configuration",
             fg=typer.colors.YELLOW,
         )
 
