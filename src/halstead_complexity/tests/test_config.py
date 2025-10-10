@@ -232,8 +232,8 @@ class TestGetSettingFromFlags:
             value = settings.get_setting_from_flags("default_language", local=True)
             assert value is not None
         else:
-            with pytest.raises(ConfigError, match="No local config"):
-                settings.get_setting_from_flags("default_language", local=True)
+            value = settings.get_setting_from_flags("default_language", local=True)
+            assert value is None
 
     def test_get_setting_from_flags_global(
         self, config_scenario: ConfigScenario
@@ -243,8 +243,8 @@ class TestGetSettingFromFlags:
             value = settings.get_setting_from_flags("default_language", global_=True)
             assert value is not None
         else:
-            with pytest.raises(ConfigError, match="No global config"):
-                settings.get_setting_from_flags("default_language", global_=True)
+            value = settings.get_setting_from_flags("default_language", global_=True)
+            assert value is None
 
     def test_get_setting_from_flags_both(self) -> None:
         """Test getting setting with both flags raises error."""

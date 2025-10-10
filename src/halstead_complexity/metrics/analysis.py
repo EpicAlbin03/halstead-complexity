@@ -393,13 +393,19 @@ def display_report(
         if show_tokens and not raw_only:
             # Operators Table
             op_table = Table(
-                title=f"Distinct Operators ({result.halstead_metrics.n1})",
+                title="Distinct Operators",
                 show_header=True,
                 header_style="bold magenta",
                 title_justify="left",
             )
-            op_table.add_column("Operator", style="yellow")
-            op_table.add_column("Count", justify="right", style="green")
+            op_table.add_column(
+                f"Operator ({result.halstead_metrics.n1})", style="yellow"
+            )
+            op_table.add_column(
+                f"Count ({sum(result.halstead_metrics.operator_counts.values())})",
+                justify="right",
+                style="green",
+            )
 
             for op in sorted(result.halstead_metrics.operators):
                 count = result.halstead_metrics.operator_counts.get(op, 0)
@@ -410,13 +416,19 @@ def display_report(
 
             # Operands Table
             operand_table = Table(
-                title=f"Distinct Operands ({result.halstead_metrics.n2})",
+                title="Distinct Operands",
                 show_header=True,
                 header_style="bold magenta",
                 title_justify="left",
             )
-            operand_table.add_column("Operand", style="yellow")
-            operand_table.add_column("Count", justify="right", style="green")
+            operand_table.add_column(
+                f"Operand ({result.halstead_metrics.n2})", style="yellow"
+            )
+            operand_table.add_column(
+                f"Count ({sum(result.halstead_metrics.operand_counts.values())})",
+                justify="right",
+                style="green",
+            )
 
             for operand in sorted(result.halstead_metrics.operands):
                 count = result.halstead_metrics.operand_counts.get(operand, 0)
