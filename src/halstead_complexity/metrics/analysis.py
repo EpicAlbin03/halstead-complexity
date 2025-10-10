@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import io
 from dataclasses import dataclass
 from pathlib import Path
@@ -300,6 +301,217 @@ def analyze_path(
         raise ValueError(f"Path is neither a file nor a directory: {path}")
 
 
+def _write_csv_report(
+    result: FileAnalysis | DirectoryAnalysis,
+    hal_only: bool,
+    raw_only: bool,
+    output_file: Path,
+    show_tokens: bool = False,
+) -> None:
+    """Write analysis results to a CSV file.
+
+    Args:
+        result: Analysis results (FileAnalysis or DirectoryAnalysis)
+        hal_only: Only include Halstead metrics
+        raw_only: Only include raw metrics
+        output_file: Path to the output CSV file
+        show_tokens: Include operators and operands in the output
+    """
+    rows: list[dict[str, Any]] = []
+
+    # Collect all unique operators and operands if showing tokens
+    all_operators: set[str] = set()
+    all_operands: set[str] = set()
+
+    if show_tokens and not raw_only:
+        if isinstance(result, FileAnalysis):
+            all_operators = set(result.halstead_metrics.operators)
+            all_operands = set(result.halstead_metrics.operands)
+        else:  # DirectoryAnalysis
+            for file_analysis in result.file_analyses.values():
+                all_operators.update(file_analysis.halstead_metrics.operators)
+                all_operands.update(file_analysis.halstead_metrics.operands)
+            if result.total_halstead_metrics:
+                all_operators.update(result.total_halstead_metrics.operators)
+                all_operands.update(result.total_halstead_metrics.operands)
+
+    if isinstance(result, FileAnalysis):
+        # Single file analysis
+        row: dict[str, Any] = {"File": str(result.file_path)}
+
+        # Add raw metrics if requested
+        if not hal_only:
+            row.update(
+                {
+                    "LOC": result.raw_metrics.loc,
+                    "LLOC": result.raw_metrics.lloc,
+                    "SLOC": result.raw_metrics.sloc,
+                    "Comments": result.raw_metrics.comments,
+                    "Multi-line strings": result.raw_metrics.multi,
+                    "Blank lines": result.raw_metrics.blanks,
+                }
+            )
+
+        # Add Halstead metrics if requested
+        if not raw_only:
+            row.update(
+                {
+                    "η1 (Distinct operators)": result.halstead_metrics.n1,
+                    "η2 (Distinct operands)": result.halstead_metrics.n2,
+                    "N1 (Total operators)": result.halstead_metrics.N1,
+                    "N2 (Total operands)": result.halstead_metrics.N2,
+                    "Vocabulary (η)": result.halstead_metrics.vocabulary,
+                    "Length (N)": result.halstead_metrics.length,
+                    "Volume (V)": round(result.halstead_metrics.volume, 2),
+                    "Difficulty (D)": round(result.halstead_metrics.difficulty, 2),
+                    "Effort (E)": round(result.halstead_metrics.effort, 2),
+                    "Time (T) (seconds)": round(result.halstead_metrics.time, 2),
+                    "Delivered Bugs (B)": round(result.halstead_metrics.bugs, 4),
+                }
+            )
+
+            # Add token details if requested - each token as a separate column
+            if show_tokens:
+                # Add operator columns
+                for op in sorted(all_operators):
+                    col_name = f"Op: {op}"
+                    row[col_name] = result.halstead_metrics.operator_counts.get(op, 0)
+
+                # Add operand columns
+                for operand in sorted(all_operands):
+                    col_name = f"Opnd: {operand}"
+                    row[col_name] = result.halstead_metrics.operand_counts.get(
+                        operand, 0
+                    )
+
+        rows.append(row)
+
+    else:  # DirectoryAnalysis
+        # For directory analysis, create rows for each file plus a total row
+        for file_path, file_analysis in sorted(result.file_analyses.items()):
+            rel_path = file_path.relative_to(result.directory_path)
+            row: dict[str, Any] = {"File": str(rel_path)}
+
+            # Add raw metrics if requested
+            if not hal_only:
+                row.update(
+                    {
+                        "LOC": file_analysis.raw_metrics.loc,
+                        "LLOC": file_analysis.raw_metrics.lloc,
+                        "SLOC": file_analysis.raw_metrics.sloc,
+                        "Comments": file_analysis.raw_metrics.comments,
+                        "Multi-line strings": file_analysis.raw_metrics.multi,
+                        "Blank lines": file_analysis.raw_metrics.blanks,
+                    }
+                )
+
+            # Add Halstead metrics if requested
+            if not raw_only:
+                row.update(
+                    {
+                        "η1 (Distinct operators)": file_analysis.halstead_metrics.n1,
+                        "η2 (Distinct operands)": file_analysis.halstead_metrics.n2,
+                        "N1 (Total operators)": file_analysis.halstead_metrics.N1,
+                        "N2 (Total operands)": file_analysis.halstead_metrics.N2,
+                        "Vocabulary (η)": file_analysis.halstead_metrics.vocabulary,
+                        "Length (N)": file_analysis.halstead_metrics.length,
+                        "Volume (V)": round(file_analysis.halstead_metrics.volume, 2),
+                        "Difficulty (D)": round(
+                            file_analysis.halstead_metrics.difficulty, 2
+                        ),
+                        "Effort (E)": round(file_analysis.halstead_metrics.effort, 2),
+                        "Time (T) (seconds)": round(
+                            file_analysis.halstead_metrics.time, 2
+                        ),
+                        "Delivered Bugs (B)": round(
+                            file_analysis.halstead_metrics.bugs, 4
+                        ),
+                    }
+                )
+
+                # Add token details if requested - each token as a separate column
+                if show_tokens:
+                    # Add operator columns
+                    for op in sorted(all_operators):
+                        col_name = f"Op: {op}"
+                        row[col_name] = (
+                            file_analysis.halstead_metrics.operator_counts.get(op, 0)
+                        )
+
+                    # Add operand columns
+                    for operand in sorted(all_operands):
+                        col_name = f"Opnd: {operand}"
+                        row[col_name] = (
+                            file_analysis.halstead_metrics.operand_counts.get(
+                                operand, 0
+                            )
+                        )
+
+            rows.append(row)
+
+        # Add total row
+        total_row: dict[str, Any] = {"File": "TOTAL"}
+
+        # Add aggregated raw metrics if requested
+        if not hal_only:
+            total_row.update(
+                {
+                    "LOC": result.total_raw_metrics.loc,
+                    "LLOC": result.total_raw_metrics.lloc,
+                    "SLOC": result.total_raw_metrics.sloc,
+                    "Comments": result.total_raw_metrics.comments,
+                    "Multi-line strings": result.total_raw_metrics.multi,
+                    "Blank lines": result.total_raw_metrics.blanks,
+                }
+            )
+
+        # Add aggregated Halstead metrics if requested
+        if not raw_only and result.total_halstead_metrics:
+            total_row.update(
+                {
+                    "η1 (Distinct operators)": result.total_halstead_metrics.n1,
+                    "η2 (Distinct operands)": result.total_halstead_metrics.n2,
+                    "N1 (Total operators)": result.total_halstead_metrics.N1,
+                    "N2 (Total operands)": result.total_halstead_metrics.N2,
+                    "Vocabulary (η)": result.total_halstead_metrics.vocabulary,
+                    "Length (N)": result.total_halstead_metrics.length,
+                    "Volume (V)": round(result.total_halstead_metrics.volume, 2),
+                    "Difficulty (D)": round(
+                        result.total_halstead_metrics.difficulty, 2
+                    ),
+                    "Effort (E)": round(result.total_halstead_metrics.effort, 2),
+                    "Time (T) (seconds)": round(result.total_halstead_metrics.time, 2),
+                    "Delivered Bugs (B)": round(result.total_halstead_metrics.bugs, 4),
+                }
+            )
+
+            # Add token details if requested - each token as a separate column
+            if show_tokens:
+                # Add operator columns
+                for op in sorted(all_operators):
+                    col_name = f"Op: {op}"
+                    total_row[col_name] = (
+                        result.total_halstead_metrics.operator_counts.get(op, 0)
+                    )
+
+                # Add operand columns
+                for operand in sorted(all_operands):
+                    col_name = f"Opnd: {operand}"
+                    total_row[col_name] = (
+                        result.total_halstead_metrics.operand_counts.get(operand, 0)
+                    )
+
+        rows.append(total_row)
+
+    # Write to CSV file
+    if rows:
+        with open(output_file, "w", encoding="utf-8", newline="") as f:
+            fieldnames = list(rows[0].keys())
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
+
 def display_report(
     result: FileAnalysis | DirectoryAnalysis,
     hal_only: bool = False,
@@ -316,6 +528,10 @@ def display_report(
         show_tokens: Show operators and operands
         output_file: Optional file path to write the report to
     """
+    if output_file and output_file.suffix.lower() == ".csv":
+        _write_csv_report(result, hal_only, raw_only, output_file, show_tokens)
+        return
+
     # Create console - if output_file is provided, use StringIO to capture output
     string_output = None
     if output_file:

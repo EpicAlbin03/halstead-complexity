@@ -1343,3 +1343,319 @@ data = calculate(10, 5)
         assert metrics.volume > 0
         assert metrics.difficulty > 0
         assert metrics.effort > 0
+
+
+class TestCSVExport:
+    """Test CSV export functionality."""
+
+    def test_csv_export_single_file(self, tmp_path: Path) -> None:
+        """Test CSV export for a single file."""
+        csv_file = tmp_path / "output.csv"
+        test_file = Path("src/halstead_complexity/examples/is_odd.py")
+
+        if not test_file.exists():
+            pytest.skip("Test file not found")
+
+        result = analyze_file(test_file)
+        assert result is not None
+
+        # Import here to avoid issues if analysis module changes
+        from halstead_complexity.metrics.analysis import display_report
+
+        display_report(result, output_file=csv_file)
+
+        assert csv_file.exists()
+
+        # Read and verify CSV content
+        import csv
+
+        with open(csv_file, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+
+        assert len(rows) == 1
+        assert "File" in rows[0]
+        assert "LOC" in rows[0]
+        assert "η1 (Distinct operators)" in rows[0]
+        assert int(rows[0]["LOC"]) > 0
+
+    def test_csv_export_directory(self, tmp_path: Path) -> None:
+        """Test CSV export for a directory."""
+        csv_file = tmp_path / "output.csv"
+        test_dir = Path("src/halstead_complexity/examples")
+
+        if not test_dir.exists():
+            pytest.skip("Test directory not found")
+
+        result = analyze_directory(test_dir)
+
+        from halstead_complexity.metrics.analysis import display_report
+
+        display_report(result, output_file=csv_file)
+
+        assert csv_file.exists()
+
+        # Read and verify CSV content
+        import csv
+
+        with open(csv_file, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+
+        # Should have rows for each file plus TOTAL
+        assert len(rows) > 1
+        assert rows[-1]["File"] == "TOTAL"
+
+    def test_csv_export_with_tokens(self, tmp_path: Path) -> None:
+        """Test CSV export with token information."""
+        csv_file = tmp_path / "output_tokens.csv"
+        test_file = Path("src/halstead_complexity/examples/is_odd.py")
+
+        if not test_file.exists():
+            pytest.skip("Test file not found")
+
+        result = analyze_file(test_file)
+        assert result is not None
+
+        from halstead_complexity.metrics.analysis import display_report
+
+        display_report(result, show_tokens=True, output_file=csv_file)
+
+        assert csv_file.exists()
+
+        # Read and verify CSV content
+        import csv
+
+        with open(csv_file, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            headers = list(reader.fieldnames) if reader.fieldnames else []
+            rows = list(reader)
+
+        assert len(rows) == 1
+
+        # Should have operator columns
+        op_columns = [h for h in headers if h.startswith("Op: ")]
+        assert len(op_columns) > 0
+
+        # Should have operand columns
+        opnd_columns = [h for h in headers if h.startswith("Opnd: ")]
+        assert len(opnd_columns) > 0
+
+        # Verify some known operators exist
+        assert any("def" in col for col in op_columns)
+        assert any("if" in col for col in op_columns)
+
+    def test_csv_export_hal_only(self, tmp_path: Path) -> None:
+        """Test CSV export with only Halstead metrics."""
+        csv_file = tmp_path / "output_hal.csv"
+        test_file = Path("src/halstead_complexity/examples/is_odd.py")
+
+        if not test_file.exists():
+            pytest.skip("Test file not found")
+
+        result = analyze_file(test_file)
+        assert result is not None
+
+        from halstead_complexity.metrics.analysis import display_report
+
+        display_report(result, hal_only=True, output_file=csv_file)
+
+        assert csv_file.exists()
+
+        # Read and verify CSV content
+        import csv
+
+        with open(csv_file, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            headers = list(reader.fieldnames) if reader.fieldnames else []
+            rows = list(reader)
+
+        assert len(rows) == 1
+
+        # Should NOT have raw metrics
+        assert "LOC" not in headers
+        assert "LLOC" not in headers
+
+        # Should have Halstead metrics
+        assert "η1 (Distinct operators)" in headers
+        assert "Volume (V)" in headers
+
+    def test_csv_export_raw_only(self, tmp_path: Path) -> None:
+        """Test CSV export with only raw metrics."""
+        csv_file = tmp_path / "output_raw.csv"
+        test_file = Path("src/halstead_complexity/examples/is_odd.py")
+
+        if not test_file.exists():
+            pytest.skip("Test file not found")
+
+        result = analyze_file(test_file)
+        assert result is not None
+
+        from halstead_complexity.metrics.analysis import display_report
+
+        display_report(result, raw_only=True, output_file=csv_file)
+
+        assert csv_file.exists()
+
+        # Read and verify CSV content
+        import csv
+
+        with open(csv_file, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            headers = list(reader.fieldnames) if reader.fieldnames else []
+            rows = list(reader)
+
+        assert len(rows) == 1
+
+        # Should have raw metrics
+        assert "LOC" in headers
+        assert "LLOC" in headers
+
+        # Should NOT have Halstead metrics
+        assert "η1 (Distinct operators)" not in headers
+        assert "Volume (V)" not in headers
+
+    def test_csv_export_tokens_directory(self, tmp_path: Path) -> None:
+        """Test CSV export with tokens for directory analysis."""
+        csv_file = tmp_path / "output_dir_tokens.csv"
+        test_dir = Path("src/halstead_complexity/examples")
+
+        if not test_dir.exists():
+            pytest.skip("Test directory not found")
+
+        result = analyze_directory(test_dir)
+
+        from halstead_complexity.metrics.analysis import display_report
+
+        display_report(result, show_tokens=True, output_file=csv_file)
+
+        assert csv_file.exists()
+
+        # Read and verify CSV content
+        import csv
+
+        with open(csv_file, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            headers = list(reader.fieldnames) if reader.fieldnames else []
+            rows = list(reader)
+
+        # Should have rows for each file plus TOTAL
+        assert len(rows) > 1
+        assert rows[-1]["File"] == "TOTAL"
+
+        # Should have operator and operand columns
+        op_columns = [h for h in headers if h.startswith("Op: ")]
+        opnd_columns = [h for h in headers if h.startswith("Opnd: ")]
+
+        assert len(op_columns) > 0
+        assert len(opnd_columns) > 0
+
+        # Each row should have token counts (including 0 for unused tokens)
+        for row in rows:
+            for col in op_columns[:3]:  # Check first few operator columns
+                assert col in row
+                # Value should be a valid integer
+                assert row[col].isdigit()
+
+    def test_csv_export_non_csv_extension(self, tmp_path: Path) -> None:
+        """Test that non-CSV files use text format."""
+        txt_file = tmp_path / "output.txt"
+        test_file = Path("src/halstead_complexity/examples/is_odd.py")
+
+        if not test_file.exists():
+            pytest.skip("Test file not found")
+
+        result = analyze_file(test_file)
+        assert result is not None
+
+        from halstead_complexity.metrics.analysis import display_report
+
+        display_report(result, output_file=txt_file)
+
+        assert txt_file.exists()
+
+        # Read content - should be formatted text, not CSV
+        content = txt_file.read_text()
+
+        # Should contain formatted output markers
+        assert "Analysis Report" in content or "Metric" in content
+        # Should NOT be CSV format (no comma-separated values in first line)
+        first_line = content.split("\n")[0]
+        assert first_line.count(",") < 5  # Text format shouldn't have many commas
+
+    def test_csv_token_counts_accuracy(self, tmp_path: Path) -> None:
+        """Test that token counts in CSV are accurate."""
+        csv_file = tmp_path / "output.csv"
+        test_file = Path("src/halstead_complexity/examples/is_odd.py")
+
+        if not test_file.exists():
+            pytest.skip("Test file not found")
+
+        result = analyze_file(test_file)
+        assert result is not None
+
+        from halstead_complexity.metrics.analysis import display_report
+
+        display_report(result, show_tokens=True, output_file=csv_file)
+
+        # Read CSV
+        import csv
+
+        with open(csv_file, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+
+        row = rows[0]
+
+        # Verify operator counts match expected values
+        # The is_odd.py file has specific operators
+        if "Op: def" in row:
+            assert int(row["Op: def"]) == 1  # One function definition
+
+        if "Op: if" in row:
+            assert int(row["Op: if"]) == 1  # One if statement
+
+        # Sum of all operator counts should equal N1
+        op_columns = [h for h in row.keys() if h.startswith("Op: ")]
+        total_operators = sum(int(row[col]) for col in op_columns)
+        assert total_operators == int(row["N1 (Total operators)"])
+
+        # Sum of all operand counts should equal N2
+        opnd_columns = [h for h in row.keys() if h.startswith("Opnd: ")]
+        total_operands = sum(int(row[col]) for col in opnd_columns)
+        assert total_operands == int(row["N2 (Total operands)"])
+
+    def test_csv_directory_total_row(self, tmp_path: Path) -> None:
+        """Test that TOTAL row correctly aggregates values."""
+        csv_file = tmp_path / "output.csv"
+        test_dir = Path("src/halstead_complexity/examples")
+
+        if not test_dir.exists():
+            pytest.skip("Test directory not found")
+
+        result = analyze_directory(test_dir)
+
+        from halstead_complexity.metrics.analysis import display_report
+
+        display_report(result, output_file=csv_file)
+
+        # Read CSV
+        import csv
+
+        with open(csv_file, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+
+        # Get TOTAL row and individual file rows
+        total_row = rows[-1]
+        file_rows = rows[:-1]
+
+        assert total_row["File"] == "TOTAL"
+
+        # LOC should be sum of all files
+        total_loc = sum(int(row["LOC"]) for row in file_rows)
+        assert int(total_row["LOC"]) == total_loc
+
+        # LLOC should be sum of all files
+        total_lloc = sum(int(row["LLOC"]) for row in file_rows)
+        assert int(total_row["LLOC"]) == total_lloc
