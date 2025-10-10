@@ -1,5 +1,3 @@
-"""Utilities for traversing tree-sitter syntax trees."""
-
 from __future__ import annotations
 
 from collections.abc import Iterator

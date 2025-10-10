@@ -1,22 +1,20 @@
-"""Module for analyzing source code files and directories."""
-
 from __future__ import annotations
 
 import io
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from rich.console import Console
 from rich.progress import track
 from rich.table import Table
 from tree_sitter import Language, Parser
 
-from ..config import ConfZConfig, LanguageConfig
-from .halstead import HalsteadMetrics, analyze_halstead_metrics
+from ..config import settings
+from .halstead import HalsteadCounters, HalsteadMetrics, analyze_halstead_metrics
 from .raw_metrics import RawMetrics, analyze_raw_metrics
 
-# Import tree-sitter languages - using lowercase to avoid constant naming convention
+# Import tree-sitter languages
 _python_language: Optional[Language] = None
 _javascript_language: Optional[Language] = None
 
@@ -91,67 +89,64 @@ def _get_language_parser(language_name: str) -> Optional[Parser]:
 
 
 def _detect_language_from_extension(
-    file_path: Path, config: ConfZConfig
-) -> Optional[tuple[str, LanguageConfig]]:
+    file_path: Path, config_settings: Dict[str, Any]
+) -> Optional[tuple[str, Dict[str, Any]]]:
     """Detect the programming language from file extension.
 
     Args:
         file_path: Path to the file
-        config: Configuration object
+        config_settings: Config dictionary
 
     Returns:
-        Tuple of (language_name, language_config) or None if not found
+        Tuple of (language_name, language_config_dict) or None if not found
     """
     extension = file_path.suffix
 
-    for lang_name, lang_config in config.languages.items():
-        if extension in lang_config.extensions:
+    languages = config_settings.get("languages", {})
+    for lang_name, lang_config in languages.items():
+        if extension in lang_config.get("extensions", []):
             return (lang_name, lang_config)
 
     return None
 
 
 def analyze_file(
-    file_path: Path, config: Optional[ConfZConfig] = None
+    file_path: Path, config_settings: Optional[Dict[str, Any]] = None
 ) -> Optional[FileAnalysis]:
     """Analyze a single source code file.
 
     Args:
         file_path: Path to the file to analyze
-        config: Configuration object (uses default if None)
+        config_settings: Config dictionary (uses default if None)
 
     Returns:
         FileAnalysis object with results, or None if file cannot be analyzed
     """
-    if config is None:
-        config = ConfZConfig()
+    if config_settings is None:
+        config_settings = settings.get_all_settings()
 
-    # Detect language from extension
-    lang_info = _detect_language_from_extension(file_path, config)
+    lang_info = _detect_language_from_extension(file_path, config_settings)
     if lang_info is None:
         return None
 
     lang_name, lang_config = lang_info
 
-    # Get parser for the language
     parser = _get_language_parser(lang_name)
     if parser is None:
         return None
 
-    # Read source code
     try:
         source_code = file_path.read_text(encoding="utf-8")
     except Exception:
         return None
 
-    # Parse the source code
     tree = parser.parse(bytes(source_code, "utf-8"))
 
-    # Collect raw metrics
     raw_metrics = analyze_raw_metrics(source_code, tree, lang_config)
 
-    # Collect Halstead metrics
-    halstead_metrics = analyze_halstead_metrics(source_code, tree, lang_config, config)
+    halstead_metrics = analyze_halstead_metrics(
+        source_code, tree, lang_config, config_settings
+    )
 
     return FileAnalysis(
         file_path=file_path,
@@ -174,43 +169,41 @@ def _should_exclude_path(path: Path, excluded: tuple[str, ...]) -> bool:
     path_parts = path.parts
 
     for exclude_pattern in excluded:
-        # Check if pattern matches any part of the path
         if exclude_pattern in path_parts:
             return True
-        # Check if pattern is in the path string
         if exclude_pattern in path_str:
             return True
 
     return False
 
 
-def _get_all_source_files(directory: Path, config: ConfZConfig) -> list[Path]:
+def _get_all_source_files(
+    directory: Path, config_settings: Dict[str, Any]
+) -> list[Path]:
     """Get all source files in a directory recursively for the default language.
 
     Args:
         directory: Directory to search
-        config: Configuration object
+        config_settings: Config dictionary
 
     Returns:
         List of Path objects for source files matching the default language
     """
     source_files: list[Path] = []
 
-    # Get default language configuration
-    default_lang = config.default_language
-    if default_lang not in config.languages:
+    default_lang = config_settings.get("default_language", "python")
+    languages = config_settings.get("languages", {})
+
+    if default_lang not in languages:
         return source_files
 
-    lang_config = config.languages[default_lang]
-    extensions = set(lang_config.extensions)
-    exclusions = tuple(lang_config.excluded)
+    lang_config = languages[default_lang]
+    extensions = set(lang_config.get("extensions", []))
+    exclusions = tuple(lang_config.get("excluded", []))
 
-    # Walk through directory
     for item in directory.rglob("*"):
         if item.is_file():
-            # Check if file has a valid extension for the default language
             if item.suffix in extensions:
-                # Check if file should be excluded
                 if not _should_exclude_path(item, exclusions):
                     source_files.append(item)
 
@@ -218,34 +211,29 @@ def _get_all_source_files(directory: Path, config: ConfZConfig) -> list[Path]:
 
 
 def analyze_directory(
-    directory_path: Path, config: Optional[ConfZConfig] = None
+    directory_path: Path, config_settings: Optional[Dict[str, Any]] = None
 ) -> DirectoryAnalysis:
     """Analyze all source files in a directory recursively.
 
     Args:
         directory_path: Path to the directory to analyze
-        config: Configuration object (uses default if None)
+        config_settings: Config dictionary (uses default if None)
 
     Returns:
         DirectoryAnalysis object with aggregated results
     """
-    if config is None:
-        config = ConfZConfig()
+    if config_settings is None:
+        config_settings = settings.get_all_settings()
 
-    # Get all source files for the default language
-    source_files = _get_all_source_files(directory_path, config)
+    source_files = _get_all_source_files(directory_path, config_settings)
 
-    # Analyze each file
     file_analyses: Dict[Path, FileAnalysis] = {}
     total_raw = RawMetrics()
-
-    # Aggregate Halstead metrics by combining counters
-    from .halstead import HalsteadCounters, HalsteadMetrics
 
     aggregated_counters = HalsteadCounters()
 
     for file_path in track(source_files, description="Analyzing files..."):
-        analysis = analyze_file(file_path, config)
+        analysis = analyze_file(file_path, config_settings)
         if analysis is not None:
             file_analyses[file_path] = analysis
             total_raw.update(analysis.raw_metrics)
@@ -283,26 +271,33 @@ def analyze_directory(
 
 
 def analyze_path(
-    path: Path, config: Optional[ConfZConfig] = None
-) -> Optional[FileAnalysis | DirectoryAnalysis]:
+    path: Path, config_settings: Optional[Dict[str, Any]] = None
+) -> FileAnalysis | DirectoryAnalysis:
     """Analyze a file or directory path.
 
     Args:
         path: Path to analyze (file or directory)
-        config: Configuration object (uses default if None)
+        config_settings: Config dictionary (uses default if None)
 
     Returns:
-        FileAnalysis for files, DirectoryAnalysis for directories, or None if invalid
+        FileAnalysis for files, DirectoryAnalysis for directories
+
+    Raises:
+        FileNotFoundError: If the path does not exist
+        ValueError: If the path is neither a file nor a directory, or if analysis fails
     """
     if not path.exists():
-        return None
+        raise FileNotFoundError(f"Path not found: {path}")
 
     if path.is_file():
-        return analyze_file(path, config)
+        result = analyze_file(path, config_settings)
+        if result is None:
+            raise ValueError(f"Unable to analyze file: {path}")
+        return result
     elif path.is_dir():
-        return analyze_directory(path, config)
-
-    return None
+        return analyze_directory(path, config_settings)
+    else:
+        raise ValueError(f"Path is neither a file nor a directory: {path}")
 
 
 def display_report(
@@ -384,7 +379,9 @@ def display_report(
                 "Difficulty (D)", f"{result.halstead_metrics.difficulty:.2f}"
             )
             hal_table.add_row("Effort (E)", f"{result.halstead_metrics.effort:.2f}")
-            hal_table.add_row("Time (T)", f"{result.halstead_metrics.time:.2f} seconds")
+            hal_table.add_row(
+                "Time (T) (seconds)", f"{result.halstead_metrics.time:.2f}"
+            )
             hal_table.add_row(
                 "Delivered Bugs (B)", f"{result.halstead_metrics.bugs:.4f}"
             )
@@ -497,7 +494,7 @@ def display_report(
                 "Effort (E)", f"{result.total_halstead_metrics.effort:.2f}"
             )
             hal_table.add_row(
-                "Time (T)", f"{result.total_halstead_metrics.time:.2f} seconds"
+                "Time (T) (seconds)", f"{result.total_halstead_metrics.time:.2f}"
             )
             hal_table.add_row(
                 "Delivered Bugs (B)", f"{result.total_halstead_metrics.bugs:.4f}"
@@ -525,11 +522,9 @@ def display_report(
 
     # Write to file if output_file is provided
     if output_file and string_output:
-        # Get the captured output and strip leading/trailing blank lines
         output_content = string_output.getvalue()
         stripped_content = output_content.strip()
 
-        # Write to file
         with open(output_file, "w", encoding="utf-8") as f:
             f.write(stripped_content)
-            f.write("\n")  # Add single newline at end
+            f.write("\n")

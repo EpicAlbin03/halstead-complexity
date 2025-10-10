@@ -1,13 +1,10 @@
-"""Module for collecting raw code metrics."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Any, Dict, Sequence
 
 from tree_sitter import Tree
 
-from ..config import LanguageConfig, MultiLineDelimiter
 from .tree_utils import iter_nodes
 
 
@@ -57,14 +54,14 @@ class RawMetrics:
 
 
 def analyze_raw_metrics(
-    source: str, tree: Tree, lang_config: LanguageConfig
+    source: str, tree: Tree, lang_config: Dict[str, Any]
 ) -> RawMetrics:
     """Analyze raw metrics from source code.
 
     Args:
         source: The source code as a string
         tree: Parsed tree-sitter Tree
-        lang_config: Language configuration
+        lang_config: Language config dictionary
 
     Returns:
         RawMetrics object with collected metrics
@@ -76,7 +73,7 @@ def analyze_raw_metrics(
     multi, comments, single_comments = _count_comment_and_multiline_lines(
         lines, lang_config
     )
-    lloc = _count_lloc(tree, set(lang_config.statement_types))
+    lloc = _count_lloc(tree, set(lang_config.get("statement_types", [])))
     sloc = max(0, loc - blanks - multi - single_comments)
 
     return RawMetrics(
@@ -91,33 +88,33 @@ def analyze_raw_metrics(
 
 
 def _count_comment_and_multiline_lines(
-    lines: Sequence[str], lang_config: LanguageConfig
+    lines: Sequence[str], lang_config: Dict[str, Any]
 ) -> tuple[int, int, int]:
     """Count comment and multi-line delimiter lines.
 
     Args:
         lines: Source code lines
-        lang_config: Language configuration
+        lang_config: Language config dictionary
 
     Returns:
         Tuple of (multi_line_count, total_comment_count, single_comment_count)
     """
-    comment_markers = lang_config.comment
-    multiline_delimiters = lang_config.multi_line_delimiters
+    comment_markers = lang_config.get("comment", [])
+    multiline_delimiters = lang_config.get("multi_line_delimiters", [])
 
     multi = 0
     comments = 0
     single_comments = 0
 
-    active_delimiter: MultiLineDelimiter | None = None
+    active_delimiter: Dict[str, Any] | None = None
     for line in lines:
         stripped = line.strip()
 
         if active_delimiter is not None:
             multi += 1
-            if active_delimiter.end and active_delimiter.end in stripped:
-                if stripped.count(active_delimiter.end) >= stripped.count(
-                    active_delimiter.start
+            if active_delimiter.get("end") and active_delimiter["end"] in stripped:
+                if stripped.count(active_delimiter["end"]) >= stripped.count(
+                    active_delimiter["start"]
                 ):
                     active_delimiter = None
             continue
@@ -127,12 +124,14 @@ def _count_comment_and_multiline_lines(
 
         started_multiline = False
         for delimiter in multiline_delimiters:
-            if stripped.startswith(delimiter.start):
+            if stripped.startswith(delimiter["start"]):
                 started_multiline = True
                 multi += 1
-                if delimiter.end and not stripped.endswith(delimiter.end):
+                if delimiter.get("end") and not stripped.endswith(delimiter["end"]):
                     active_delimiter = delimiter
-                elif stripped.count(delimiter.start) > stripped.count(delimiter.end):
+                elif delimiter.get("end") and stripped.count(
+                    delimiter["start"]
+                ) > stripped.count(delimiter["end"]):
                     active_delimiter = delimiter
                 break
 

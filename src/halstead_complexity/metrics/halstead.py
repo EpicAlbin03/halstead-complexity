@@ -1,13 +1,11 @@
-"""Module for collecting Halstead complexity metrics."""
-
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import Any, Dict
 
 from tree_sitter import Tree
 
-from ..config import ConfZConfig, LanguageConfig
 from .tree_utils import iter_leaf_nodes
 
 
@@ -88,7 +86,6 @@ class HalsteadMetrics:
         vocabulary = n1 + n2
         length = N1 + N2
 
-        # Avoid division by zero and log(0)
         volume = length * math.log2(vocabulary) if vocabulary > 0 else 0.0
         difficulty = (n1 / 2) * (N2 / n2) if n2 > 0 and n1 > 0 else 0.0
         effort = difficulty * volume
@@ -115,32 +112,39 @@ class HalsteadMetrics:
 
 
 def analyze_halstead_metrics(
-    source: str, tree: Tree, lang_config: LanguageConfig, config: ConfZConfig
+    source: str,
+    tree: Tree,
+    lang_config: Dict[str, Any],
+    config_settings: Dict[str, Any],
 ) -> HalsteadMetrics:
     """Analyze Halstead complexity metrics from source code.
 
     Args:
         source: The source code as a string
         tree: Parsed tree-sitter Tree
-        lang_config: Language configuration
-        config: Full configuration object
+        lang_config: Language config dictionary
+        config_settings: Full config dictionary
 
     Returns:
         HalsteadMetrics with computed complexity values
     """
     counters = HalsteadCounters()
 
-    # Build lookup sets for fast checking
-    keywords_set = set(lang_config.keywords)
-    symbols_set = set(lang_config.symbols)
-    multi_word_ops_set = set(lang_config.multi_word_operators)
+    keywords_set = set(lang_config.get("keywords", []))
+    symbols_set = set(lang_config.get("symbols", []))
+    multi_word_ops_set = set(lang_config.get("multi_word_operators", []))
     all_operators = keywords_set | symbols_set | multi_word_ops_set
-    operand_types_set = set(lang_config.operand_types)
+    operand_types_set = set(lang_config.get("operand_types", []))
 
-    # Track which template strings we've already counted (to avoid double-counting)
-    counted_template_strings = set[int]()
+    counted_template_strings: set[tuple[int, int]] = set()
 
-    # Traverse leaf nodes and classify
+    braces_single = config_settings.get("braces_single_operator", False)
+    brace_pairs = {"(": "()", "{": "{}", "[": "[]"}
+    closing_braces = {")", "}", "]"}
+
+    # Track brace stack for pairing
+    brace_stack: list[str] = []
+
     for node in iter_leaf_nodes(tree):
         node_text = (
             node.text.decode("utf-8")
@@ -152,9 +156,9 @@ def analyze_halstead_metrics(
             continue
 
         # Check if we're inside a template string and should count as single operand
-        if config.template_literal_single_operand:
-            # Check if this node is inside a string/template_string
-            current = node.parent
+        if config_settings.get("template_literal_single_operand", False):
+            # Walk up the tree to see if this node is inside a string/template_string
+            current = node
             template_parent = None
             while current:
                 if current.type in ("string", "template_string"):
@@ -164,10 +168,11 @@ def analyze_halstead_metrics(
 
             # If we found a template parent, handle it specially
             if template_parent:
-                parent_id = id(template_parent)
+                # Use byte range as unique identifier for the template string
+                parent_key = (template_parent.start_byte, template_parent.end_byte)
                 # Only count the template string once
-                if parent_id not in counted_template_strings:
-                    counted_template_strings.add(parent_id)
+                if parent_key not in counted_template_strings:
+                    counted_template_strings.add(parent_key)
                     full_text = (
                         template_parent.text.decode("utf-8")
                         if isinstance(template_parent.text, bytes)
@@ -183,11 +188,35 @@ def analyze_halstead_metrics(
 
         # Check if it's an operator
         if node_text in all_operators:
-            counters.operators.add(node_text)
-            counters.operator_count += 1
-            counters.operator_counts[node_text] = (
-                counters.operator_counts.get(node_text, 0) + 1
-            )
+            # Handle braces as single operators if configured
+            if braces_single and node_text in brace_pairs:
+                # Opening brace - track it
+                brace_stack.append(node_text)
+            elif braces_single and node_text in closing_braces:
+                # Closing brace - try to pair with opening brace
+                if brace_stack:
+                    opening = brace_stack.pop()
+                    # Count the pair as single operator
+                    pair = brace_pairs.get(opening, node_text)
+                    counters.operators.add(pair)
+                    counters.operator_count += 1
+                    counters.operator_counts[pair] = (
+                        counters.operator_counts.get(pair, 0) + 1
+                    )
+                else:
+                    # Unmatched closing brace - count it individually
+                    counters.operators.add(node_text)
+                    counters.operator_count += 1
+                    counters.operator_counts[node_text] = (
+                        counters.operator_counts.get(node_text, 0) + 1
+                    )
+            else:
+                # Regular operator
+                counters.operators.add(node_text)
+                counters.operator_count += 1
+                counters.operator_counts[node_text] = (
+                    counters.operator_counts.get(node_text, 0) + 1
+                )
         # Check if it's an operand by node type
         elif node.type in operand_types_set:
             counters.operands.add(node_text)

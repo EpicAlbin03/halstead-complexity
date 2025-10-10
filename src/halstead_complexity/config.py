@@ -10,7 +10,7 @@ from platformdirs import user_config_dir
 
 
 class ConfigLevel(Enum):
-    """Configuration file precedence levels."""
+    """Config file precedence levels."""
 
     DEFAULT = "default"
     GLOBAL = "global"
@@ -18,7 +18,7 @@ class ConfigLevel(Enum):
 
 
 class ConfigError(Exception):
-    """Base exception for configuration errors."""
+    """Base exception for config errors."""
 
     def __init__(
         self,
@@ -41,15 +41,9 @@ class ConfigError(Exception):
 
 
 class ConfigManager:
-    """Manages hierarchical configuration files with precedence: default < global < local."""
+    """Manages hierarchical config files with precedence: default < global < local."""
 
-    _instance: Optional["ConfigManager"] = None
-    _initialized: bool = False
-
-    def __new__(cls, *args, **kwargs):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
+    PRECEDENCE_ORDER = [ConfigLevel.DEFAULT, ConfigLevel.GLOBAL, ConfigLevel.LOCAL]
 
     def __init__(
         self,
@@ -57,84 +51,117 @@ class ConfigManager:
         global_file: Optional[str] = None,
         local_file: Optional[str] = None,
     ):
-        if self._initialized:
-            return
-
-        self.default_file = default_file or os.path.join(
-            os.path.dirname(__file__), "default_config.json"
-        )
-        self.global_file = global_file or os.path.expanduser(
-            user_config_dir(appname="halstead-complexity/config.json")
-        )
-        self.local_file = local_file or os.path.join(os.getcwd(), "hc_config.json")
-
-        self._config_paths = {
-            ConfigLevel.DEFAULT: self.default_file,
-            ConfigLevel.GLOBAL: self.global_file,
-            ConfigLevel.LOCAL: self.local_file,
+        self.config_paths = {
+            ConfigLevel.DEFAULT: default_file or self._get_default_path(),
+            ConfigLevel.GLOBAL: global_file or self._get_global_path(),
+            ConfigLevel.LOCAL: local_file or self._get_local_path(),
         }
 
-        self._precedence_order = [
-            ConfigLevel.DEFAULT,
-            ConfigLevel.GLOBAL,
-            ConfigLevel.LOCAL,
-        ]
-
-        if not os.path.exists(self.default_file):
-            raise ConfigError("Default config file not found", path=self.default_file)
-
+        self._validate_default_exists()
         self._load_configs()
-        self._initialized = True
 
-    @classmethod
-    def get_instance(
-        cls,
-        default_file: Optional[str] = None,
-        global_file: Optional[str] = None,
-        local_file: Optional[str] = None,
-    ) -> "ConfigManager":
-        """Get or create the singleton ConfigManager instance."""
-        if cls._instance is None or not cls._initialized:
-            cls._instance = cls(default_file, global_file, local_file)
-        return cls._instance
+    @staticmethod
+    def _get_default_path() -> str:
+        """Get the default config file path."""
+        return os.path.join(os.path.dirname(__file__), "default_config.json")
 
-    @classmethod
-    def reset_instance(cls) -> None:
-        """Reset the singleton instance. Useful for testing."""
-        cls._instance = None
-        cls._initialized = False
+    @staticmethod
+    def _get_global_path() -> str:
+        """Get the global config file path."""
+        return os.path.join(
+            user_config_dir(appname="halstead-complexity"), "config.json"
+        )
+
+    @staticmethod
+    def _get_local_path() -> str:
+        """Get the local config file path."""
+        return os.path.join(os.getcwd(), "hc_config.json")
+
+    def _validate_default_exists(self) -> None:
+        """Ensure the default config file exists."""
+        default_path = self.config_paths[ConfigLevel.DEFAULT]
+        if not os.path.exists(default_path):
+            raise ConfigError("Default config file not found", path=default_path)
 
     def _load_configs(self) -> None:
-        """Load all existing configuration files."""
+        """Load all existing config files using Dynaconf's settings_files."""
         existing_files = [
-            path for path in self._config_paths.values() if os.path.exists(path)
+            path for path in self.config_paths.values() if os.path.exists(path)
         ]
 
         if not existing_files:
-            raise ConfigError("No configuration files found")
+            raise ConfigError("No config files found")
 
         try:
             self.settings = Dynaconf(
                 settings_files=existing_files,
+                environments=False,
                 validators=[
                     Validator(
                         "default_language",
                         must_exist=True,
                         is_in=["python", "javascript"],
+                        messages={
+                            "must_exist_true": "{name} is required",
+                            "operations": "{name} must be in {op_value}, got '{value}'",
+                        },
                     ),
+                    Validator(
+                        "braces_single_operator",
+                        is_type_of=bool,
+                        default=False,
+                        messages={
+                            "operations": "{name} must be of type bool, got '{value}'",
+                        },
+                    ),
+                    Validator(
+                        "template_literal_single_operand",
+                        is_type_of=bool,
+                        default=False,
+                        messages={
+                            "operations": "{name} must be of type bool, got '{value}'",
+                        },
+                    ),
+                    Validator(
+                        "languages",
+                        must_exist=True,
+                        is_type_of=dict,
+                        messages={
+                            "must_exist_true": "{name} is required",
+                            "operations": "{name} must be of type dict, got '{value}'",
+                        },
+                    ),
+                    # TODO: Add more validators
                 ],
             )
         except Exception as e:
-            raise ConfigError("Failed to load configuration files", original_error=e)
+            raise ConfigError("Failed to load config files", original_error=e)
 
         self.active_config_file = existing_files[-1]
+        self.active_config_level = self._determine_active_level()
 
-        if self.active_config_file == self.default_file:
-            self.active_config_level = ConfigLevel.DEFAULT
-        elif self.active_config_file == self.global_file:
-            self.active_config_level = ConfigLevel.GLOBAL
-        else:
-            self.active_config_level = ConfigLevel.LOCAL
+    def _determine_active_level(self) -> ConfigLevel:
+        """Determine the active config level based on the active file."""
+        for level, path in self.config_paths.items():
+            if path == self.active_config_file:
+                return level
+        return ConfigLevel.DEFAULT
+
+    def configure(
+        self,
+        default_file: Optional[str] = None,
+        global_file: Optional[str] = None,
+        local_file: Optional[str] = None,
+    ) -> None:
+        """Reconfigure the settings instance. Useful for testing."""
+        if default_file:
+            self.config_paths[ConfigLevel.DEFAULT] = default_file
+        if global_file:
+            self.config_paths[ConfigLevel.GLOBAL] = global_file
+        if local_file:
+            self.config_paths[ConfigLevel.LOCAL] = local_file
+
+        self._load_configs()
 
     def get_level_from_flags(
         self, local: bool = False, global_: bool = False
@@ -145,32 +172,17 @@ class ConfigManager:
 
         if global_:
             return ConfigLevel.GLOBAL
-        elif local:
+        if local:
             return ConfigLevel.LOCAL
-        return ConfigLevel.DEFAULT
-
-    def get_active_config_level(self) -> ConfigLevel:
-        """Get the active config level."""
         return self.active_config_level
 
-    def _find_existing_config(self, max_level: ConfigLevel) -> tuple[str, ConfigLevel]:
-        """Find the highest precedence existing config up to max_level."""
-        max_index = self._precedence_order.index(max_level)
-
-        for level in reversed(self._precedence_order[: max_index + 1]):
-            path = self._config_paths[level]
-            if os.path.exists(path):
-                return path, level
-
-        raise ConfigError("No configuration file found")
-
     def _read_config_file(self, path: str) -> Dict[str, Any]:
-        """Read and parse a configuration file."""
+        """Read and parse a config file."""
         try:
             with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except FileNotFoundError:
-            raise ConfigError("Configuration file not found", path=path)
+            raise ConfigError("Config file not found", path=path)
         except json.JSONDecodeError as e:
             raise ConfigError(
                 "Invalid JSON in config file", path=path, original_error=e
@@ -178,13 +190,13 @@ class ConfigManager:
         except Exception as e:
             raise ConfigError("Failed to read config file", path=path, original_error=e)
 
-    def _write_config_file(self, path: str, content: str) -> None:
-        """Write content to a configuration file."""
+    def _write_config_file(self, path: str, data: Dict[str, Any]) -> None:
+        """Write content to a config file."""
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
-
             with open(path, "w", encoding="utf-8") as f:
-                f.write(content)
+                json.dump(data, f, indent=2)
+                f.write("\n")
         except PermissionError as e:
             raise ConfigError(
                 "Permission denied writing config", path=path, original_error=e
@@ -195,192 +207,166 @@ class ConfigManager:
             )
 
     def _update_config_file(self, config_path: str, key: str, value: Any) -> None:
-        """Update a specific key in a configuration file."""
+        """Update a specific key in a config file."""
+        config_data = self._read_config_file(config_path)
+        config_data[key] = value
+        self._write_config_file(config_path, config_data)
+        self._load_configs()
+
+    def _get_config_at_level(self, level: ConfigLevel) -> Dict[str, Any]:
+        """Load and return settings from a specific config level."""
+        config_path = self.config_paths[level]
+
+        if not os.path.exists(config_path):
+            raise ConfigError(f"No {level.value} config file found at {config_path}")
+
         try:
-            config_data = self._read_config_file(config_path)
-
-            config_data[key] = value
-
-            config_content = json.dumps(config_data, indent=2, ensure_ascii=False)
-            self._write_config_file(config_path, config_content)
-
-            self._load_configs()
-        except ConfigError:
-            raise
+            level_settings = Dynaconf(settings_files=[config_path])
+            return {k.lower(): v for k, v in level_settings.as_dict().items()}
         except Exception as e:
-            raise ConfigError(
-                "Failed to update config file", path=config_path, original_error=e
-            )
+            raise ConfigError(f"Failed to load {level.value} config: {e}")
 
     def get_config_paths(self) -> Dict[str, str]:
-        """Get all configuration file paths."""
-        return {level.value: path for level, path in self._config_paths.items()}
-
-    def get_active_config_file(self) -> str:
-        """Get the path of the currently active (highest precedence) config file."""
-        return self.active_config_file
+        """Get all config file paths."""
+        return {level.value: path for level, path in self.config_paths.items()}
 
     def get_config_file_path(
         self, local: bool = False, global_: bool = False
     ) -> tuple[str, bool, str]:
         """
-        Get configuration file path based on flags.
+        Get config file path based on flags.
 
         Returns:
             tuple: (path, exists, level_name)
         """
-        try:
-            requested_level = self.get_level_from_flags(local, global_)
+        requested_level = self.get_level_from_flags(local, global_)
+        requested_path = self.config_paths[requested_level]
+        exists = os.path.exists(requested_path)
 
-            if requested_level is ConfigLevel.DEFAULT:
-                return (self.active_config_file, True, self.active_config_level.value)
+        if not exists and requested_level != self.active_config_level:
+            return (
+                self.active_config_file,
+                False,
+                self.active_config_level.value,
+            )
 
-            requested_path = self._config_paths[requested_level]
-
-            if os.path.exists(requested_path):
-                return (requested_path, True, requested_level.value)
-
-            return (self.active_config_file, False, self.active_config_level.value)
-        except ConfigError as e:
-            raise ConfigError(f"Failed to get config file path: {e}")
+        return (requested_path, exists, requested_level.value)
 
     def get_all_settings(self) -> Dict[str, Any]:
-        """Get all settings from merged configuration."""
-        try:
-            return self.settings.as_dict()
-        except Exception as e:
-            raise ConfigError(f"Failed to retrieve settings: {e}")
+        """Get all settings from merged config."""
+        return {k.lower(): v for k, v in self.settings.as_dict().items()}
 
     def get_setting(self, key: str) -> Any:
         """Get a specific setting by key."""
-        try:
-            value = self.settings.get(key)
-            if value is None:
-                raise ConfigError(f"Setting '{key}' not found")
-            return value
-        except ConfigError:
-            raise
-        except Exception as e:
-            raise ConfigError(f"Failed to get setting '{key}': {e}")
+        value = self.settings.get(key)
+        if value is None:
+            raise ConfigError(f"Setting '{key}' not found")
+        return value
 
     def get_setting_from_flags(
         self, key: str, local: bool = False, global_: bool = False
     ) -> Any:
-        """Get a specific setting by key from the specified config level."""
-        try:
-            requested_level = self.get_level_from_flags(local, global_)
-            if requested_level is ConfigLevel.DEFAULT:
-                return self.get_setting(key)
+        """Get a specific setting by key from the specified config level.
 
-            config_path = self._config_paths[requested_level]
+        Returns None if the config file doesn't exist or the key is not found.
+        """
+        requested_level = self.get_level_from_flags(local, global_)
 
-            if not os.path.exists(config_path):
-                raise ConfigError(
-                    f"No {requested_level.value} config file found at {config_path}"
-                )
+        if requested_level == self.active_config_level and not (local or global_):
+            return self.get_setting(key)
 
-            try:
-                level_settings = Dynaconf(settings_files=[config_path])
-                return level_settings.get(key)
-            except Exception as e:
-                raise ConfigError(f"Failed to get setting '{key}': {e}")
-        except ConfigError:
-            raise
-        except Exception as e:
-            raise ConfigError(f"Failed to get setting '{key}': {e}")
+        config_path = self.config_paths[requested_level]
+        if not os.path.exists(config_path):
+            return None
 
-    def update_setting(self, key: str, value: Any) -> None:
-        """Update a setting."""
+        level_settings = Dynaconf(settings_files=[config_path])
+        return level_settings.get(key)
+
+    def find_setting_source(self, key: str) -> str:
+        """Find which config level a setting comes from.
+
+        Args:
+            key: The setting key to look for
+
+        Returns:
+            The name of the config level where the setting is defined
+        """
+        # Check in reverse precedence order (local -> global -> default)
+        for level in reversed(self.PRECEDENCE_ORDER):
+            config_path = self.config_paths[level]
+            if os.path.exists(config_path):
+                try:
+                    level_settings = Dynaconf(settings_files=[config_path])
+                    value = level_settings.get(key)
+                    if value is not None:
+                        return level.value
+                except Exception:
+                    continue
+
+        return "default"
+
+    def update_setting(self, key: str, value: Any, path: str = None) -> None:
+        """Update a setting in the active config file."""
         try:
             self.settings.update({key: value}, validate=True)
-            self._update_config_file(self.active_config_file, key, value)
         except Exception as e:
-            raise ConfigError(f"Failed to update setting '{key}': {e}")
+            raise ConfigError(str(e))
+        if not path:
+            path = self.active_config_file
+        self._update_config_file(path, key, value)
 
     def update_setting_from_flags(
         self, key: str, value: Any, local: bool = False, global_: bool = False
     ) -> None:
-        """Update a setting from the specified config level."""
-        try:
-            requested_level = self.get_level_from_flags(local, global_)
-            if requested_level is ConfigLevel.DEFAULT:
-                self.update_setting(key, value)
-                return
+        """Update a setting at the specified config level."""
+        requested_level = self.get_level_from_flags(local, global_)
 
-            config_path = self._config_paths[requested_level]
+        if requested_level == ConfigLevel.DEFAULT and not (local or global_):
+            raise ConfigError(
+                "Cannot update default config. Create a config by running 'config init' first."
+            )
 
-            if not os.path.exists(config_path):
-                raise ConfigError(
-                    f"No {requested_level.value} config file found at {config_path}"
-                )
+        config_path = self.config_paths[requested_level]
+        if not os.path.exists(config_path):
+            raise ConfigError(
+                f"No {requested_level.value} config file found at {config_path}"
+            )
 
-            try:
-                # TODO: update/validate specified config file
-                self._update_config_file(config_path, key, value)
-            except Exception as e:
-                raise ConfigError(f"Failed to update setting '{key}': {e}")
-        except ConfigError:
-            raise
-        except Exception as e:
-            raise ConfigError(f"Failed to update setting '{key}': {e}")
+        # TODO: validate against schema before writing
+        self.update_setting(key, value, config_path)
 
     def init_config(self, local: bool = False, global_: bool = False) -> str:
         """
-        Initialize a new configuration file at the specified level.
+        Initialize a new config file at the specified level.
 
         Returns:
             str: Path to the created config file
         """
-        try:
-            level = self.get_level_from_flags(local, global_)
+        if not local and not global_:
+            raise ConfigError("Must specify either local=True or global_=True")
 
-            if level is ConfigLevel.DEFAULT:
-                raise ConfigError("Must specify either local=True or global_=True")
+        level = self.get_level_from_flags(local, global_)
+        target_path = self.config_paths[level]
 
-            target_path = self._config_paths[level]
+        if os.path.exists(target_path):
+            raise ConfigError(f"Config file already exists at {target_path}")
 
-            if os.path.exists(target_path):
-                raise ConfigError(f"Config file already exists at {target_path}")
+        default_content = self._read_config_file(self.config_paths[ConfigLevel.DEFAULT])
+        self._write_config_file(target_path, default_content)
+        self._load_configs()
 
-            with open(self.default_file, "r", encoding="utf-8") as f:
-                default_content = f.read()
-
-            self._write_config_file(target_path, default_content)
-            self._load_configs()
-            return target_path
-        except ConfigError:
-            raise
-        except Exception as e:
-            raise ConfigError(f"Failed to initialize config: {e}")
+        return target_path
 
     def list_settings(
         self, local: bool = False, global_: bool = False
     ) -> Dict[str, Any]:
-        """
-        List settings from a specific configuration level.
+        """List settings from a specific config level."""
+        level = self.get_level_from_flags(local, global_)
 
-        Returns:
-            Dict: Settings from the specified config file
-        """
-        try:
-            level = self.get_level_from_flags(local, global_)
+        if not local and not global_:
+            return self.get_all_settings()
 
-            if level is ConfigLevel.DEFAULT:
-                return self.get_all_settings()
+        return self._get_config_at_level(level)
 
-            config_path = self._config_paths[level]
 
-            if not os.path.exists(config_path):
-                raise ConfigError(
-                    f"No {level.value} config file found at {config_path}"
-                )
-
-            try:
-                level_settings = Dynaconf(settings_files=[config_path])
-                return level_settings.as_dict()
-            except Exception as e:
-                raise ConfigError(f"Failed to load {level.value} config: {e}")
-        except ConfigError:
-            raise
-        except Exception as e:
-            raise ConfigError(f"Failed to list settings: {e}")
+settings = ConfigManager()
