@@ -1,208 +1,355 @@
-# Halstead Complexity Analyzer
+# halstead-complexity
 
-A command-line tool for analyzing source code complexity using Halstead metrics and raw code metrics. Supports multiple programming languages through tree-sitter.
+A command-line tool for measuring Halstead complexity metrics in source code. Supports Python and JavaScript out of the box, with the ability to add support for any language via tree-sitter grammars.
 
-## Features
+## Quick Start
 
-- **Halstead Complexity Metrics**: Calculate comprehensive Halstead metrics including vocabulary, length, volume, difficulty, effort, time, and estimated bugs.
-- **Raw Code Metrics**: Collect basic code metrics like LOC, LLOC, SLOC, comments, multi-line strings, and blank lines.
-- **Multi-language Support**: Currently supports Python and JavaScript with extensible configuration for additional languages.
-- **Flexible Analysis**: Analyze individual files or entire directories recursively.
-- **Customizable Output**: Filter metrics (raw only, Halstead only), save to files, or run in silent mode.
-- **Configurable**: Customize analysis behavior through configuration files.
+```bash
+# Install the tool
+pip install halstead-complexity[python]
+
+# Initialize a config file
+hc config init
+
+# Analyze a file or directory
+hc analyze <path>
+
+# Show each token counted
+hc analyze <path> --tokens
+
+# Other options
+hc analyze <path> --hal # Only Halstead metrics
+hc analyze <path> --raw # Only raw metrics
+hc analyze <path> --silence # Only output success message
+hc analyze <path> -o report.csv # Write report to file (txt or csv)
+hc analyze --help # Show all options
+```
 
 ## Installation
 
 ```bash
-# Using uv (recommended)
-uv pip install halstead-complexity
-
-# Or clone and install from source
-git clone <repository-url>
-cd halstead-complexity
-uv sync
+pip install halstead-complexity
 ```
 
-## Usage
-
-### Basic Analysis
-
-Analyze a single file:
+or
 
 ```bash
-uv run hc analyze path/to/file.py
+uv add halstead-complexity
 ```
 
-Analyze a directory recursively:
+### Language Support
+
+The tool does not come with any language dependencies by default. To add support for other languages, you'll need to install the corresponding tree-sitter grammar packages (see [Adding Support for More Languages](https://github.com/EpicAlbin03/halstead-complexity?tab=readme-ov-file#adding-support-for-more-languages) below).
+
+However, the default configuration includes support for Python and JavaScript. If that is all you need, you can simply install the package with the optional dependencies (python, javascript, all):
 
 ```bash
-uv run hc analyze path/to/directory/
+pip install halstead-complexity[python]
 ```
 
-### Command Options
-
-- `--hal`: Show only Halstead metrics
-- `--raw`: Show only raw metrics
-- `--silence`: Only output a success message
-- `--output <file>` or `-o <file>`: Write report to a file
-- `--config <file>` or `-c <file>`: Use a custom configuration file
-
-### Examples
-
-Show only Halstead metrics:
-
-```bash
-uv run hc analyze file.py --hal
-```
-
-Show only raw metrics:
-
-```bash
-uv run hc analyze file.py --raw
-```
-
-Save report to a file:
-
-```bash
-uv run hc analyze file.py --output report.txt
-```
-
-Silent analysis (useful for CI/CD):
-
-```bash
-uv run hc analyze src/ --silence
-```
-
-## Metrics Explained
+## Metrics
 
 ### Raw Metrics
 
-- **LOC (Lines of Code)**: Total number of lines of code (excludes blank lines)
-- **LLOC (Logical Lines of Code)**: Number of logical lines of code (each contains exactly one statement)
-- **SLOC (Source Lines of Code)**: Number of source lines (excludes blanks, comments, and multi-line strings)
+- **LOC**: Total number of lines of code
+- **LLOC**: Number of logical lines of code (each contains exactly one statement)
+- **SLOC**: Number of source lines of code
 - **Comments**: Number of comment lines
-- **Multi**: Number of lines in multi-line strings (e.g., docstrings in Python)
-- **Blanks**: Number of blank or whitespace-only lines
+- **Multi-lines**: Number of lines representing multi-line delimiters
+- **Blank lines**: Number of blank or whitespace-only lines
+
+The equation `SLOC` + `Multi-lines` + `Comments` + `Blank lines` = `LOC` should always hold.
 
 ### Halstead Metrics
 
-- **η1**: Number of distinct operators
-- **η2**: Number of distinct operands
-- **N1**: Total number of operators
-- **N2**: Total number of operands
-- **Vocabulary (η)**: η1 + η2
-- **Length (N)**: N1 + N2
-- **Calculated Length (N̂)**: η1 × log₂(η1) + η2 × log₂(η2)
-- **Volume (V)**: N × log₂(η)
-- **Difficulty (D)**: (η1/2) × (N2/η2)
-- **Effort (E)**: D × V
-- **Time (T)**: E/18 seconds (estimated time to program)
-- **Bugs (B)**: V/3000 (estimated number of delivered bugs)
+- **η₁**: Total number of distinct operators
+- **η₂**: Total number of distinct operands
+- **N₁**: Total number of operators
+- **N₂**: Total number of operands
+- **Vocabulary:** η = η₁ + η₂
+- **Length:** N = N₁ + N₂
+- **Volume:** V = N × log₂(η)
+- **Difficulty:** D = (η₁ / 2) × (N₂ / η₂)
+- **Effort:** E = D × V
+- **Time:** T = E / 18 seconds
+- **Delivered Bugs:** B = V / 3000
 
 ## Configuration
 
-The tool uses a hierarchical configuration system:
+The tool uses a hierarchical configuration system with three levels of precedence:
 
-1. Default configuration (built-in)
-2. Global configuration: `~/.config/halstead-complexity/config.json`
-3. Local configuration: `./hc_config.json` (in current directory)
+1. **Default config** - Built-in configuration (lowest precedence)
+2. **Global config** - User-wide configuration at `~/.config/halstead-complexity/config.json`
+3. **Local config** - Project-specific configuration at `./hc_config.json` (highest precedence)
 
-### Managing Configuration
+### Creating a Configuration File
 
-Initialize a new config file:
-
-```bash
-uv run hc config init
-```
-
-View configuration:
+Initialize a new configuration file:
 
 ```bash
-uv run hc config list
+# Create a local config in the current directory
+hc config init --local
+
+# Create a global config for all projects
+hc config init --global
 ```
 
-Get a specific value:
+### Configuration Structure
+
+The configuration file is a JSON file with the following structure (see [default config](https://github.com/EpicAlbin03/halstead-complexity/blob/main/src/halstead_complexity/default_config.json)):
+
+```json
+{
+  "default_language": "python",
+  "braces_single_operator": false,
+  "template_literal_single_operand": false,
+  "languages": {
+    "python": {
+      "comment": ["#"],
+      "extensions": [".py"],
+      "excluded": ["__pycache__", ".pytest_cache", ".venv"],
+      "statement_types": [...],
+      "operand_types": [...],
+      "keywords": [...],
+      "symbols": [...],
+      "multi_word_operators": ["is not", "not in"],
+      "multi_line_delimiters": [
+        {"start": "\"\"\"", "end": "\"\"\""},
+        {"start": "'''", "end": "'''"}
+      ]
+    }
+  }
+}
+```
+
+### Configuration Fields
+
+- **`default_language`**: The default language to use when analyzing files. Used for directory analysis. Single file analysis will use the file extension to determine the language. Must be one of the languages defined in `languages`.
+- **`braces_single_operator`**: Whether to treat opening/closing braces as single operators (default: `false`)
+
+  true: `{}` is a single operator
+
+  false: `{` and `}` are separate operators
+
+- **`template_literal_single_operand`**: Whether to treat template literals as single operands (default: `false`)
+
+  true: `f"{n} is odd."` is a single operand
+
+  false: `" is odd."` is an operand and `{` `}` are operators
+
+- **`languages`**: Language-specific configurations
+
+Each language configuration includes:
+
+- **`comment`**: Single-line comment syntax (e.g., `["#"]` for Python, `["//"]` for JavaScript)
+- **`extensions`**: File extensions for this language (e.g., `[".py"]`, `[".js", ".mjs"]`)
+- **`excluded`**: Directories to exclude when analyzing (e.g., `["__pycache__", "node_modules"]`)
+- **`statement_types`**: Tree-sitter node types that represent statements
+- **`operand_types`**: Tree-sitter node types that represent operands (identifiers, literals, etc.)
+- **`keywords`**: Language keywords that are considered operators
+- **`symbols`**: Operator symbols (e.g., `+`, `-`, `==`, `!=`)
+- **`multi_word_operators`**: Multi-word operators (e.g., `"is not"`, `"not in"`)
+- **`multi_line_delimiters`**: Multi-line comment/string delimiters
+
+## Adding Support for More Languages
+
+The tool uses [tree-sitter](https://tree-sitter.github.io/tree-sitter/) for parsing source code, which means you can add support for any language that has a tree-sitter grammar.
+
+### Step 1: Install the Tree-Sitter Grammar
+
+First, install the Python bindings for the tree-sitter grammar. Most languages have packages available on PyPI with the naming convention `tree-sitter-{language}`.
 
 ```bash
-uv run hc config get default_language
+# Example: Adding Rust support
+pip install tree-sitter-rust
 ```
 
-Set a value:
+Find tree-sitter grammars by:
+
+- Searching for `tree-sitter-{language}` on [PyPI](https://pypi.org/search/?q=tree-sitter-rust)
+- Checking the [list of parsers](https://github.com/tree-sitter/tree-sitter/wiki/List-of-parsers) (all these may not exists on PyPI)
+
+### Step 2: Configure the Language
+
+Add a configuration for the new language to your config file:
 
 ```bash
-uv run hc config set default_language python
+# Initialize a config file if you haven't already
+hc config init
 ```
 
-### Configuration Options
+Edit the config file (e.g., `hc_config.json`) and add your language configuration:
 
-Key configuration options include:
+- See the [default config](https://github.com/EpicAlbin03/halstead-complexity/blob/main/src/halstead_complexity/default_config.json) for an example.
+- Check the grammar definition in the tree-sitter repository (e.g., `tree-sitter-rust/grammar.js`)
 
-- `default_language`: Default programming language
-- `braces_single_operator`: Whether braces/brackets count as one or two operators
-- `languages.<lang>.comment`: Comment symbols for the language
-- `languages.<lang>.extensions`: File extensions for the language
-- `languages.<lang>.excluded`: Paths to exclude from analysis
-- `languages.<lang>.keywords`: Language keywords (operators)
-- `languages.<lang>.symbols`: Language symbols (operators)
-- `languages.<lang>.multi_word_operators`: Multi-word operators (e.g., "is not", "not in")
-- `languages.<lang>.multi_line_delimiters`: Delimiters for multi-line strings/comments
+## CLI Reference
 
-## Example Output
+**Usage**:
 
-```
-Analysis Report for: examples/is_odd.py
-================================================================================
-
-Raw Metrics:
-----------------------------------------
-  LOC (Lines of Code):              10
-  LLOC (Logical Lines of Code):     8
-  SLOC (Source Lines of Code):      9
-  Comments:                          1
-  Multi-line strings:                0
-  Blank lines:                       3
-
-Halstead Metrics:
-----------------------------------------
-  η1 (Distinct operators):           21
-  η2 (Distinct operands):            11
-  N1 (Total operators):              35
-  N2 (Total operands):               17
-  Vocabulary (η):                    32
-  Length (N):                        52
-  Calculated Length (N̂):             130.29
-  Volume (V):                        260.00
-  Difficulty (D):                    16.23
-  Effort (E):                        4219.09
-  Time (T):                          234.39 seconds
-  Bugs (B):                          0.0867
+```console
+$ hc [OPTIONS] COMMAND [ARGS]...
 ```
 
-## Supported Languages
+**Options**:
 
-Currently supported:
+- `-v, --version`: Show the application&#x27;s version and exit.
+- `--install-completion`: Install completion for the current shell.
+- `--show-completion`: Show completion for the current shell, to copy it or customize the installation.
+- `--help`: Show this message and exit.
 
-- Python (.py)
-- JavaScript (.js, .mjs, .cjs)
+**Commands**:
 
-Additional languages can be added by extending the configuration with appropriate tree-sitter grammar support.
+- `analyze`: Analyze source code file or directory for complexity metrics.
+- `config`: Manage Halstead Complexity config files.
 
-## Development
+## `hc analyze`
 
-Run tests:
+Analyze source code file or directory for complexity metrics.
 
-```bash
-uv run pytest
+**Usage**:
+
+```console
+$ hc analyze [OPTIONS] PATH
 ```
 
-## License
+**Arguments**:
 
-MIT
+- `PATH`: Path to a file or directory to analyze [required]
+
+**Options**:
+
+- `--hal`: Only show Halstead metrics
+- `--raw`: Only show raw metrics
+- `--tokens`: Show operators and operands
+- `--silence`: Only output success message
+- `-o, --output TEXT`: Write report to file
+- `-c, --config TEXT`: Path to config file
+- `--help`: Show this message and exit.
+
+## `hc config`
+
+Manage Halstead Complexity config files.
+
+**Usage**:
+
+```console
+$ hc config [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options**:
+
+- `--help`: Show this message and exit.
+
+**Commands**:
+
+- `init`: Initialize a new config file.
+- `get`: Get a config value.
+- `set`: Set a config value.
+- `list`: List all config values.
+- `path`: Show the path to the config file.
+
+### `hc config init`
+
+Initialize a new config file.
+
+**Usage**:
+
+```console
+$ hc config init [OPTIONS]
+```
+
+**Options**:
+
+- `--local`: Use the config file in the current working directory.
+- `--global`: Use the global config file.
+- `--help`: Show this message and exit.
+
+### `hc config get`
+
+Get a config value.
+
+**Usage**:
+
+```console
+$ hc config get [OPTIONS] KEY
+```
+
+**Arguments**:
+
+- `KEY`: [required]
+
+**Options**:
+
+- `--local`: Use the config file in the current working directory.
+- `--global`: Use the global config file.
+- `--help`: Show this message and exit.
+
+### `hc config set`
+
+Set a config value.
+
+**Usage**:
+
+```console
+$ hc config set [OPTIONS] KEY VALUE
+```
+
+**Arguments**:
+
+- `KEY`: [required]
+- `VALUE`: [required]
+
+**Options**:
+
+- `--local`: Use the config file in the current working directory.
+- `--global`: Use the global config file.
+- `--help`: Show this message and exit.
+
+### `hc config list`
+
+List all config values.
+
+**Usage**:
+
+```console
+$ hc config list [OPTIONS]
+```
+
+**Options**:
+
+- `--local`: Use the config file in the current working directory.
+- `--global`: Use the global config file.
+- `--help`: Show this message and exit.
+
+### `hc config path`
+
+Show the path to the config file.
+
+**Usage**:
+
+```console
+$ hc config path [OPTIONS]
+```
+
+**Options**:
+
+- `--local`: Use the config file in the current working directory.
+- `--global`: Use the global config file.
+- `--help`: Show this message and exit.
+
+## Contributing
+
+- More default language support is welcome. Please add the configuration to the [default config](https://github.com/EpicAlbin03/halstead-complexity/blob/main/src/halstead_complexity/default_config.json) and include the optional dependency in the [pyproject.toml](https://github.com/EpicAlbin03/halstead-complexity/blob/main/pyproject.toml).
+- For now the project is focused on Halstead complexity. But it could potentially be expanded to include other metrics such as cyclomatic complexity and maintainability index.
 
 ## Credits
 
-Built with:
+This project was inspired by:
 
-- [tree-sitter](https://tree-sitter.github.io/) - Incremental parsing system
-- [typer](https://typer.tiangolo.com/) - CLI framework
-- [confz](https://github.com/Zuehlke/ConfZ) - Configuration management
+- [Radon](https://github.com/rubik/radon)
+- [HalsteadComplexity](https://github.com/robjoh01/HalsteadComplexity)
+
+## License
+
+Licensed under the [MIT license](https://github.com/EpicAlbin03/halstead-complexity/blob/main/LICENSE)
