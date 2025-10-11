@@ -1,7 +1,7 @@
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Generator
+from typing import Any, Generator
 
 import pytest
 
@@ -627,3 +627,203 @@ class TestConfigError:
         assert "Test error" in error_str
         assert "/some/path" in error_str
         assert "Original error" in error_str
+
+
+class TestLanguageValidation:
+    """Test language configuration validation."""
+
+    def test_valid_language_config(self, tmp_path: Path) -> None:
+        """Test that valid language configurations pass validation."""
+        valid_config: dict[str, Any] = {
+            "default_language": "python",
+            "braces_single_operator": False,
+            "template_literal_single_operand": False,
+            "languages": {
+                "python": {
+                    "comment": ["#"],
+                    "extensions": [".py"],
+                    "excluded": ["__pycache__"],
+                    "statement_types": ["expression_statement"],
+                    "operand_types": ["identifier"],
+                    "keywords": ["def", "class"],
+                    "symbols": ["(", ")"],
+                    "multi_word_operators": [],
+                    "multi_line_delimiters": [{"start": '"""', "end": '"""'}],
+                }
+            },
+        }
+
+        config_file = tmp_path / "test_config.json"
+        config_file.write_text(json.dumps(valid_config))
+
+        # Should not raise any errors
+        config_manager = ConfigManager(
+            default_file=str(config_file),
+            global_file=str(tmp_path / "nonexistent_global.json"),
+            local_file=str(tmp_path / "nonexistent_local.json"),
+        )
+        assert config_manager.get_setting("default_language") == "python"
+
+    def test_missing_language_field(self, tmp_path: Path) -> None:
+        """Test that missing required language fields raise errors."""
+        invalid_config: dict[str, Any] = {
+            "default_language": "python",
+            "braces_single_operator": False,
+            "template_literal_single_operand": False,
+            "languages": {
+                "python": {
+                    "comment": ["#"],
+                    "extensions": [".py"],
+                    # Missing required fields
+                }
+            },
+        }
+
+        config_file = tmp_path / "test_config.json"
+        config_file.write_text(json.dumps(invalid_config))
+
+        with pytest.raises(ConfigError, match="missing required field"):
+            ConfigManager(
+                default_file=str(config_file),
+                global_file=str(tmp_path / "nonexistent_global.json"),
+                local_file=str(tmp_path / "nonexistent_local.json"),
+            )
+
+    def test_invalid_field_type(self, tmp_path: Path) -> None:
+        """Test that invalid field types raise errors."""
+        invalid_config: dict[str, Any] = {
+            "default_language": "python",
+            "braces_single_operator": False,
+            "template_literal_single_operand": False,
+            "languages": {
+                "python": {
+                    "comment": "#",  # Should be a list, not a string
+                    "extensions": [".py"],
+                    "excluded": ["__pycache__"],
+                    "statement_types": ["expression_statement"],
+                    "operand_types": ["identifier"],
+                    "keywords": ["def", "class"],
+                    "symbols": ["(", ")"],
+                    "multi_word_operators": [],
+                    "multi_line_delimiters": [{"start": '"""', "end": '"""'}],
+                }
+            },
+        }
+
+        config_file = tmp_path / "test_config.json"
+        config_file.write_text(json.dumps(invalid_config))
+
+        with pytest.raises(ConfigError, match="must be a list"):
+            ConfigManager(
+                default_file=str(config_file),
+                global_file=str(tmp_path / "nonexistent_global.json"),
+                local_file=str(tmp_path / "nonexistent_local.json"),
+            )
+
+    def test_invalid_multi_line_delimiters(self, tmp_path: Path) -> None:
+        """Test that invalid multi_line_delimiters structure raises errors."""
+        invalid_config: dict[str, Any] = {
+            "default_language": "python",
+            "braces_single_operator": False,
+            "template_literal_single_operand": False,
+            "languages": {
+                "python": {
+                    "comment": ["#"],
+                    "extensions": [".py"],
+                    "excluded": ["__pycache__"],
+                    "statement_types": ["expression_statement"],
+                    "operand_types": ["identifier"],
+                    "keywords": ["def", "class"],
+                    "symbols": ["(", ")"],
+                    "multi_word_operators": [],
+                    "multi_line_delimiters": [{"start": '"""'}],  # Missing 'end'
+                }
+            },
+        }
+
+        config_file = tmp_path / "test_config.json"
+        config_file.write_text(json.dumps(invalid_config))
+
+        with pytest.raises(ConfigError, match="must have both 'start' and 'end'"):
+            ConfigManager(
+                default_file=str(config_file),
+                global_file=str(tmp_path / "nonexistent_global.json"),
+                local_file=str(tmp_path / "nonexistent_local.json"),
+            )
+
+    def test_multiple_languages_validation(self, tmp_path: Path) -> None:
+        """Test validation works with multiple language configs."""
+        valid_config: dict[str, Any] = {
+            "default_language": "python",
+            "braces_single_operator": False,
+            "template_literal_single_operand": False,
+            "languages": {
+                "python": {
+                    "comment": ["#"],
+                    "extensions": [".py"],
+                    "excluded": ["__pycache__"],
+                    "statement_types": ["expression_statement"],
+                    "operand_types": ["identifier"],
+                    "keywords": ["def", "class"],
+                    "symbols": ["(", ")"],
+                    "multi_word_operators": [],
+                    "multi_line_delimiters": [{"start": '"""', "end": '"""'}],
+                },
+                "javascript": {
+                    "comment": ["//"],
+                    "extensions": [".js"],
+                    "excluded": ["node_modules"],
+                    "statement_types": ["variable_declaration"],
+                    "operand_types": ["identifier"],
+                    "keywords": ["function", "const"],
+                    "symbols": ["(", ")"],
+                    "multi_word_operators": [],
+                    "multi_line_delimiters": [{"start": "/*", "end": "*/"}],
+                },
+            },
+        }
+
+        config_file = tmp_path / "test_config.json"
+        config_file.write_text(json.dumps(valid_config))
+
+        # Should not raise any errors
+        config_manager = ConfigManager(
+            default_file=str(config_file),
+            global_file=str(tmp_path / "nonexistent_global.json"),
+            local_file=str(tmp_path / "nonexistent_local.json"),
+        )
+        assert "python" in config_manager.get_setting("languages")
+        assert "javascript" in config_manager.get_setting("languages")
+
+    def test_custom_language_name(self, tmp_path: Path) -> None:
+        """Test that custom language names are supported."""
+        valid_config: dict[str, Any] = {
+            "default_language": "rust",
+            "braces_single_operator": False,
+            "template_literal_single_operand": False,
+            "languages": {
+                "rust": {  # Custom language name
+                    "comment": ["//"],
+                    "extensions": [".rs"],
+                    "excluded": ["target"],
+                    "statement_types": ["expression_statement"],
+                    "operand_types": ["identifier"],
+                    "keywords": ["fn", "let"],
+                    "symbols": ["(", ")"],
+                    "multi_word_operators": [],
+                    "multi_line_delimiters": [{"start": "/*", "end": "*/"}],
+                }
+            },
+        }
+
+        config_file = tmp_path / "test_config.json"
+        config_file.write_text(json.dumps(valid_config))
+
+        # Should not raise any errors
+        config_manager = ConfigManager(
+            default_file=str(config_file),
+            global_file=str(tmp_path / "nonexistent_global.json"),
+            local_file=str(tmp_path / "nonexistent_local.json"),
+        )
+        assert config_manager.get_setting("default_language") == "rust"
+        assert "rust" in config_manager.get_setting("languages")

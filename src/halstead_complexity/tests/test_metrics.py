@@ -21,9 +21,12 @@ from halstead_complexity.config import settings
 from halstead_complexity.metrics.analysis import (
     DirectoryAnalysis,
     FileAnalysis,
+    LanguageNotSupportedError,
     analyze_directory,
     analyze_file,
     analyze_path,
+    get_language_parser,
+    language_cache,
 )
 from halstead_complexity.metrics.halstead import (
     HalsteadCounters,
@@ -1659,3 +1662,62 @@ class TestCSVExport:
         # LLOC should be sum of all files
         total_lloc = sum(int(row["LLOC"]) for row in file_rows)
         assert int(total_row["LLOC"]) == total_lloc
+
+
+# ============================================================================
+# Dynamic Import Tests
+# ============================================================================
+
+
+class TestDynamicImport:
+    """Test dynamic language import functionality."""
+
+    def test_dynamic_import_python(self, tmp_path: Path) -> None:
+        """Test dynamically loading and using Python language parser."""
+        py_file = tmp_path / "test.py"
+        py_file.write_text("x = 1 + 2")
+
+        result = analyze_file(py_file)
+        assert result is not None
+        assert result.halstead_metrics.N1 > 0
+
+    def test_dynamic_import_javascript(self, tmp_path: Path) -> None:
+        """Test dynamically loading and using JavaScript language parser."""
+        js_file = tmp_path / "test.js"
+        js_file.write_text("const x = 1 + 2;")
+
+        result = analyze_file(js_file)
+        assert result is not None
+        assert result.halstead_metrics.N1 > 0
+
+    def test_language_caching(self) -> None:
+        """Test that language parsers are cached."""
+        language_cache.clear()
+        get_language_parser("python")
+        assert "python" in language_cache
+        assert language_cache["python"] is not None
+
+    def test_unsupported_language_error(self) -> None:
+        """Test that requesting a non-existent language raises appropriate error."""
+        with pytest.raises(LanguageNotSupportedError) as exc_info:
+            get_language_parser("nonexistent")
+
+        assert "nonexistent" in str(exc_info.value)
+        assert "tree-sitter-nonexistent" in str(exc_info.value)
+        assert "pip install" in str(exc_info.value)
+
+    def test_multiple_languages(self, tmp_path: Path) -> None:
+        """Test analyzing files in different languages."""
+        from halstead_complexity.metrics.analysis import analyze_file
+
+        py_file = tmp_path / "script.py"
+        py_file.write_text("x = 1")
+
+        js_file = tmp_path / "script.js"
+        js_file.write_text("const x = 1;")
+
+        py_result = analyze_file(py_file)
+        js_result = analyze_file(js_file)
+
+        assert py_result is not None
+        assert js_result is not None

@@ -17,7 +17,7 @@ class RawMetrics:
         lloc: Number of logical lines of code (each contains exactly one statement)
         sloc: Number of source lines of code
         comments: Number of comment lines
-        multi: Number of lines representing multi-line strings
+        multi: Number of lines representing multi-line delimiters
         blanks: Number of blank or whitespace-only lines
         single_comments: Number of single-line comment lines
     """

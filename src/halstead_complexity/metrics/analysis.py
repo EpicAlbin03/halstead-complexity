@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import importlib
 import io
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,23 +16,21 @@ from ..config import settings
 from .halstead import HalsteadCounters, HalsteadMetrics, analyze_halstead_metrics
 from .raw_metrics import RawMetrics, analyze_raw_metrics
 
-# Import tree-sitter languages
-_python_language: Optional[Language] = None
-_javascript_language: Optional[Language] = None
+# Cache for dynamically loaded Language objects
+language_cache: Dict[str, Optional[Language]] = {}
 
-try:
-    import tree_sitter_python as tspython
 
-    _python_language = Language(tspython.language())
-except ImportError:
-    pass
+class LanguageNotSupportedError(Exception):
+    """Raised when a language grammar module is not installed."""
 
-try:
-    import tree_sitter_javascript as tsjavascript
-
-    _javascript_language = Language(tsjavascript.language())
-except ImportError:
-    pass
+    def __init__(self, language_name: str):
+        self.language_name = language_name
+        self.message = (
+            f"Language '{language_name}' is not supported. "
+            f"Please install the tree-sitter grammar: "
+            f"pip install tree-sitter-{language_name}"
+        )
+        super().__init__(self.message)
 
 
 @dataclass
@@ -66,24 +65,60 @@ class DirectoryAnalysis:
     total_halstead_metrics: Optional[HalsteadMetrics] = None
 
 
-def _get_language_parser(language_name: str) -> Optional[Parser]:
+def get_language_parser(language_name: str) -> Parser:
     """Get a tree-sitter parser for the given language.
 
     Args:
         language_name: Name of the programming language
 
     Returns:
-        Configured Parser object, or None if language is not supported
-    """
-    language = None
+        Configured Parser object
 
-    if language_name == "python" and _python_language is not None:
-        language = _python_language
-    elif language_name == "javascript" and _javascript_language is not None:
-        language = _javascript_language
+    Raises:
+        LanguageNotSupportedError: If the language grammar module is not installed
+    """
+    # Check if language is already cached
+    if language_name in language_cache:
+        cached_language = language_cache[language_name]
+        if cached_language is None:
+            raise LanguageNotSupportedError(language_name)
+        parser = Parser(cached_language)
+        return parser
+
+    # Try to dynamically import the language module
+    language: Optional[Language] = None
+    module_name = f"tree_sitter_{language_name}"
+
+    try:
+        # Dynamically import the tree-sitter language module
+        language_module = importlib.import_module(module_name)
+
+        # Get the language function (usually named 'language')
+        if hasattr(language_module, "language"):
+            language = Language(language_module.language())  # type: ignore
+        else:
+            # Some modules might have a different naming convention
+            # Try to find a callable that returns the language
+            for attr_name in dir(language_module):
+                if not attr_name.startswith("_"):
+                    attr = getattr(language_module, attr_name)
+                    if callable(attr):
+                        try:
+                            language = Language(attr())
+                            break
+                        except Exception:
+                            continue
+    except ImportError:
+        language_cache[language_name] = None
+        raise LanguageNotSupportedError(language_name)
+    except Exception as e:
+        language_cache[language_name] = None
+        raise LanguageNotSupportedError(language_name) from e
+
+    language_cache[language_name] = language
 
     if language is None:
-        return None
+        raise LanguageNotSupportedError(language_name)
 
     parser = Parser(language)
     return parser
@@ -122,6 +157,9 @@ def analyze_file(
 
     Returns:
         FileAnalysis object with results, or None if file cannot be analyzed
+
+    Raises:
+        LanguageNotSupportedError: If the language grammar module is not installed
     """
     if config_settings is None:
         config_settings = settings.get_all_settings()
@@ -132,9 +170,7 @@ def analyze_file(
 
     lang_name, lang_config = lang_info
 
-    parser = _get_language_parser(lang_name)
-    if parser is None:
-        return None
+    parser = get_language_parser(lang_name)
 
     try:
         source_code = file_path.read_text(encoding="utf-8")
@@ -323,7 +359,7 @@ def _write_csv_report(
     all_operators: set[str] = set()
     all_operands: set[str] = set()
 
-    if show_tokens and not raw_only:
+    if show_tokens:
         if isinstance(result, FileAnalysis):
             all_operators = set(result.halstead_metrics.operators)
             all_operands = set(result.halstead_metrics.operands)
@@ -347,7 +383,7 @@ def _write_csv_report(
                     "LLOC": result.raw_metrics.lloc,
                     "SLOC": result.raw_metrics.sloc,
                     "Comments": result.raw_metrics.comments,
-                    "Multi-line strings": result.raw_metrics.multi,
+                    "Multi-lines": result.raw_metrics.multi,
                     "Blank lines": result.raw_metrics.blanks,
                 }
             )
@@ -370,19 +406,17 @@ def _write_csv_report(
                 }
             )
 
-            # Add token details if requested - each token as a separate column
-            if show_tokens:
-                # Add operator columns
-                for op in sorted(all_operators):
-                    col_name = f"Op: {op}"
-                    row[col_name] = result.halstead_metrics.operator_counts.get(op, 0)
+        # Add token details if requested - each token as a separate column
+        if show_tokens:
+            # Add operator columns
+            for op in sorted(all_operators):
+                col_name = f"Op: {op}"
+                row[col_name] = result.halstead_metrics.operator_counts.get(op, 0)
 
-                # Add operand columns
-                for operand in sorted(all_operands):
-                    col_name = f"Opnd: {operand}"
-                    row[col_name] = result.halstead_metrics.operand_counts.get(
-                        operand, 0
-                    )
+            # Add operand columns
+            for operand in sorted(all_operands):
+                col_name = f"Opnd: {operand}"
+                row[col_name] = result.halstead_metrics.operand_counts.get(operand, 0)
 
         rows.append(row)
 
@@ -400,7 +434,7 @@ def _write_csv_report(
                         "LLOC": file_analysis.raw_metrics.lloc,
                         "SLOC": file_analysis.raw_metrics.sloc,
                         "Comments": file_analysis.raw_metrics.comments,
-                        "Multi-line strings": file_analysis.raw_metrics.multi,
+                        "Multi-lines": file_analysis.raw_metrics.multi,
                         "Blank lines": file_analysis.raw_metrics.blanks,
                     }
                 )
@@ -429,23 +463,21 @@ def _write_csv_report(
                     }
                 )
 
-                # Add token details if requested - each token as a separate column
-                if show_tokens:
-                    # Add operator columns
-                    for op in sorted(all_operators):
-                        col_name = f"Op: {op}"
-                        row[col_name] = (
-                            file_analysis.halstead_metrics.operator_counts.get(op, 0)
-                        )
+            # Add token details if requested - each token as a separate column
+            if show_tokens:
+                # Add operator columns
+                for op in sorted(all_operators):
+                    col_name = f"Op: {op}"
+                    row[col_name] = file_analysis.halstead_metrics.operator_counts.get(
+                        op, 0
+                    )
 
-                    # Add operand columns
-                    for operand in sorted(all_operands):
-                        col_name = f"Opnd: {operand}"
-                        row[col_name] = (
-                            file_analysis.halstead_metrics.operand_counts.get(
-                                operand, 0
-                            )
-                        )
+                # Add operand columns
+                for operand in sorted(all_operands):
+                    col_name = f"Opnd: {operand}"
+                    row[col_name] = file_analysis.halstead_metrics.operand_counts.get(
+                        operand, 0
+                    )
 
             rows.append(row)
 
@@ -460,7 +492,7 @@ def _write_csv_report(
                     "LLOC": result.total_raw_metrics.lloc,
                     "SLOC": result.total_raw_metrics.sloc,
                     "Comments": result.total_raw_metrics.comments,
-                    "Multi-line strings": result.total_raw_metrics.multi,
+                    "Multi-lines": result.total_raw_metrics.multi,
                     "Blank lines": result.total_raw_metrics.blanks,
                 }
             )
@@ -485,21 +517,21 @@ def _write_csv_report(
                 }
             )
 
-            # Add token details if requested - each token as a separate column
-            if show_tokens:
-                # Add operator columns
-                for op in sorted(all_operators):
-                    col_name = f"Op: {op}"
-                    total_row[col_name] = (
-                        result.total_halstead_metrics.operator_counts.get(op, 0)
-                    )
+        # Add token details if requested - each token as a separate column
+        if show_tokens and result.total_halstead_metrics:
+            # Add operator columns
+            for op in sorted(all_operators):
+                col_name = f"Op: {op}"
+                total_row[col_name] = result.total_halstead_metrics.operator_counts.get(
+                    op, 0
+                )
 
-                # Add operand columns
-                for operand in sorted(all_operands):
-                    col_name = f"Opnd: {operand}"
-                    total_row[col_name] = (
-                        result.total_halstead_metrics.operand_counts.get(operand, 0)
-                    )
+            # Add operand columns
+            for operand in sorted(all_operands):
+                col_name = f"Opnd: {operand}"
+                total_row[col_name] = result.total_halstead_metrics.operand_counts.get(
+                    operand, 0
+                )
 
         rows.append(total_row)
 
@@ -565,7 +597,7 @@ def display_report(
                 "SLOC (Source Lines of Code)", str(result.raw_metrics.sloc)
             )
             raw_table.add_row("Comments", str(result.raw_metrics.comments))
-            raw_table.add_row("Multi-line strings", str(result.raw_metrics.multi))
+            raw_table.add_row("Multi-lines", str(result.raw_metrics.multi))
             raw_table.add_row("Blank lines", str(result.raw_metrics.blanks))
 
             console.print(raw_table)
@@ -606,7 +638,7 @@ def display_report(
             console.print()
 
         # Tokens Tables
-        if show_tokens and not raw_only:
+        if show_tokens:
             # Operators Table
             op_table = Table(
                 title="Distinct Operators",
@@ -679,7 +711,7 @@ def display_report(
                 "SLOC (Source Lines of Code)", str(result.total_raw_metrics.sloc)
             )
             raw_table.add_row("Comments", str(result.total_raw_metrics.comments))
-            raw_table.add_row("Multi-line strings", str(result.total_raw_metrics.multi))
+            raw_table.add_row("Multi-lines", str(result.total_raw_metrics.multi))
             raw_table.add_row("Blank lines", str(result.total_raw_metrics.blanks))
 
             console.print(raw_table)

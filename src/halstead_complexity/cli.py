@@ -7,7 +7,7 @@ import typer
 from halstead_complexity import __app_name__, __version__
 
 from .config import ConfigError, ConfigManager, settings
-from .metrics.analysis import analyze_path, display_report
+from .metrics.analysis import LanguageNotSupportedError, analyze_path, display_report
 
 app = typer.Typer()
 config_app = typer.Typer(help="Manage Halstead Complexity config files.")
@@ -40,6 +40,14 @@ def _handle_error(error: Exception) -> None:
     if isinstance(error, ConfigError):
         typer.secho(
             f"{error_prefix} Config error: ", fg=typer.colors.RED, bold=True, nl=False
+        )
+        typer.secho(str(error), fg=typer.colors.RED, err=True)
+    elif isinstance(error, LanguageNotSupportedError):
+        typer.secho(
+            f"{error_prefix} Language not supported: ",
+            fg=typer.colors.RED,
+            bold=True,
+            nl=False,
         )
         typer.secho(str(error), fg=typer.colors.RED, err=True)
     elif isinstance(error, FileNotFoundError):
@@ -125,6 +133,9 @@ def config_init(
     global_: bool = GLOBAL_OPTION,
 ) -> None:
     """Initialize a new config file."""
+    if local and global_:
+        raise typer.BadParameter("Cannot specify both --local and --global")
+
     try:
         if not local and not global_:
             local = True
@@ -144,6 +155,9 @@ def config_get(
     global_: bool = GLOBAL_OPTION,
 ) -> None:
     """Get a config value."""
+    if local and global_:
+        raise typer.BadParameter("Cannot specify both --local and --global")
+
     try:
         if not local and not global_:
             try:
@@ -193,6 +207,9 @@ def config_set(
     global_: bool = GLOBAL_OPTION,
 ) -> None:
     """Set a config value."""
+    if local and global_:
+        raise typer.BadParameter("Cannot specify both --local and --global")
+
     try:
         level = _get_level_name(local, global_)
 
@@ -220,6 +237,9 @@ def config_list(
     global_: bool = GLOBAL_OPTION,
 ) -> None:
     """List all config values."""
+    if local and global_:
+        raise typer.BadParameter("Cannot specify both --local and --global")
+
     try:
         level = _get_level_name(local, global_)
         config_settings = settings.list_settings(local, global_)
@@ -236,6 +256,9 @@ def config_path(
     global_: bool = GLOBAL_OPTION,
 ) -> None:
     """Show the path to the config file."""
+    if local and global_:
+        raise typer.BadParameter("Cannot specify both --local and --global")
+
     try:
         level = _get_level_name(local, global_)
         path, exists, config_type = settings.get_config_file_path(local, global_)
@@ -269,6 +292,9 @@ def analyze(
     ),
 ) -> None:
     """Analyze source code file or directory for complexity metrics."""
+    if hal and raw:
+        raise typer.BadParameter("Cannot specify both --hal and --raw")
+
     try:
         if config_path:
             config_file = Path(config_path)

@@ -2,10 +2,11 @@
 
 import json
 import os
+import sys
 from enum import Enum
 from typing import Any, Dict, Optional
 
-from dynaconf import Dynaconf, Validator
+from dynaconf import Dynaconf
 from platformdirs import user_config_dir
 
 
@@ -96,46 +97,11 @@ class ConfigManager:
             self.settings = Dynaconf(
                 settings_files=existing_files,
                 environments=False,
-                validators=[
-                    Validator(
-                        "default_language",
-                        must_exist=True,
-                        is_in=["python", "javascript"],
-                        messages={
-                            "must_exist_true": "{name} is required",
-                            "operations": "{name} must be in {op_value}, got '{value}'",
-                        },
-                    ),
-                    Validator(
-                        "braces_single_operator",
-                        is_type_of=bool,
-                        default=False,
-                        messages={
-                            "operations": "{name} must be of type bool, got '{value}'",
-                        },
-                    ),
-                    Validator(
-                        "template_literal_single_operand",
-                        is_type_of=bool,
-                        default=False,
-                        messages={
-                            "operations": "{name} must be of type bool, got '{value}'",
-                        },
-                    ),
-                    Validator(
-                        "languages",
-                        must_exist=True,
-                        is_type_of=dict,
-                        messages={
-                            "must_exist_true": "{name} is required",
-                            "operations": "{name} must be of type dict, got '{value}'",
-                        },
-                    ),
-                    # TODO: Add more validators
-                ],
             )
         except Exception as e:
             raise ConfigError("Failed to load config files", original_error=e)
+
+        self._validate_language_configs()
 
         self.active_config_file = existing_files[-1]
         self.active_config_level = self._determine_active_level()
@@ -146,6 +112,108 @@ class ConfigManager:
             if path == self.active_config_file:
                 return level
         return ConfigLevel.DEFAULT
+
+    def _validate_config_data(self, config_data: Dict[str, Any]) -> None:
+        """Validate configuration data structure without loading into Dynaconf.
+
+        This is used to validate config before writing to file.
+        """
+        # Validate required top-level fields
+        if "languages" not in config_data:
+            raise ConfigError("Missing 'languages' in configuration")
+
+        languages = config_data["languages"]
+        if not isinstance(languages, dict):
+            raise ConfigError("'languages' must be a dictionary")
+
+        # Validate default_language
+        default_language = config_data.get("default_language")
+        if default_language is None:
+            raise ConfigError("Missing 'default_language' in configuration")
+        if default_language not in languages:
+            raise ConfigError(
+                f"default_language '{default_language}' is not defined in languages"
+            )
+
+        # Validate boolean fields
+        braces_single_operator = config_data.get("braces_single_operator", False)
+        if not isinstance(braces_single_operator, bool):
+            raise ConfigError(
+                f"braces_single_operator must be of type bool, got {type(braces_single_operator).__name__}"
+            )
+
+        template_literal_single_operand = config_data.get(
+            "template_literal_single_operand", False
+        )
+        if not isinstance(template_literal_single_operand, bool):
+            raise ConfigError(
+                f"template_literal_single_operand must be of type bool, got {type(template_literal_single_operand).__name__}"
+            )
+
+        # Validate language configurations
+        required_fields = [
+            "comment",
+            "extensions",
+            "excluded",
+            "statement_types",
+            "operand_types",
+            "keywords",
+            "symbols",
+            "multi_word_operators",
+            "multi_line_delimiters",
+        ]
+
+        for lang_name, lang_config in languages.items():
+            if not isinstance(lang_config, dict):
+                raise ConfigError(
+                    f"Language '{lang_name}' configuration must be a dictionary"
+                )
+
+            for field in required_fields:
+                if field not in lang_config:
+                    raise ConfigError(
+                        f"Language '{lang_name}' is missing required field '{field}'"
+                    )
+
+            list_fields = [
+                "comment",
+                "extensions",
+                "excluded",
+                "statement_types",
+                "operand_types",
+                "keywords",
+                "symbols",
+                "multi_word_operators",
+                "multi_line_delimiters",
+            ]
+
+            for field in list_fields:
+                if field in lang_config and not isinstance(lang_config[field], list):
+                    raise ConfigError(
+                        f"Language '{lang_name}' field '{field}' must be a list, "
+                        f"got {type(lang_config[field]).__name__}"
+                    )
+
+            if "multi_line_delimiters" in lang_config:
+                for idx, delimiter in enumerate(lang_config["multi_line_delimiters"]):
+                    if not isinstance(delimiter, dict):
+                        raise ConfigError(
+                            f"Language '{lang_name}' multi_line_delimiters[{idx}] "
+                            f"must be a dictionary with 'start' and 'end' keys"
+                        )
+                    if "start" not in delimiter or "end" not in delimiter:
+                        raise ConfigError(
+                            f"Language '{lang_name}' multi_line_delimiters[{idx}] "
+                            f"must have both 'start' and 'end' keys"
+                        )
+
+    def _validate_language_configs(self) -> None:
+        """Validate each language configuration dynamically from loaded settings."""
+        if not hasattr(self.settings, "languages"):
+            raise ConfigError("Missing 'languages' in configuration")
+
+        config_data = {k.lower(): v for k, v in self.settings.as_dict().items()}
+        self._validate_config_data(config_data)
 
     def configure(
         self,
@@ -209,7 +277,28 @@ class ConfigManager:
     def _update_config_file(self, config_path: str, key: str, value: Any) -> None:
         """Update a specific key in a config file."""
         config_data = self._read_config_file(config_path)
-        config_data[key] = value
+
+        # Handle nested keys with dot notation
+        if "." in key:
+            keys = key.split(".")
+            current = config_data
+
+            # Navigate to the parent of the target key
+            for k in keys[:-1]:
+                if k not in current:
+                    current[k] = {}
+                elif not isinstance(current[k], dict):
+                    raise ConfigError(
+                        f"Cannot set nested key '{key}': '{k}' is not a dictionary"
+                    )
+                current = current[k]
+
+            # Set the final key
+            current[keys[-1]] = value
+        else:
+            config_data[key] = value
+
+        self._validate_config_data(config_data)
         self._write_config_file(config_path, config_data)
         self._load_configs()
 
@@ -311,8 +400,10 @@ class ConfigManager:
             self.settings.update({key: value}, validate=True)
         except Exception as e:
             raise ConfigError(str(e))
+
         if not path:
             path = self.active_config_file
+
         self._update_config_file(path, key, value)
 
     def update_setting_from_flags(
@@ -332,7 +423,6 @@ class ConfigManager:
                 f"No {requested_level.value} config file found at {config_path}"
             )
 
-        # TODO: validate against schema before writing
         self.update_setting(key, value, config_path)
 
     def init_config(self, local: bool = False, global_: bool = False) -> str:
@@ -369,4 +459,10 @@ class ConfigManager:
         return self._get_config_at_level(level)
 
 
-settings = ConfigManager()
+try:
+    settings = ConfigManager()
+except ConfigError as e:
+    print(f"\033[91m✗ Config error: {e.message}\033[0m", file=sys.stderr)
+    if e.path:
+        print(f"  Path: {e.path}", file=sys.stderr)
+    sys.exit(1)
