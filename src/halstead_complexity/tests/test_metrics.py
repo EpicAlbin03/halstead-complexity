@@ -1578,7 +1578,7 @@ class TestCSVExport:
         assert txt_file.exists()
 
         # Read content - should be formatted text, not CSV
-        content = txt_file.read_text()
+        content = txt_file.read_text(encoding="utf-8")
 
         # Should contain formatted output markers
         assert "Analysis Report" in content or "Metric" in content
