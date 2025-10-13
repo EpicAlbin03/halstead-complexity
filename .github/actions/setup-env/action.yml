@@ -16,3 +16,4 @@ runs:
 
     - name: Install the project
       run: uv sync --all-extras
+      shell: bash
