@@ -13,7 +13,7 @@ jobs:
 
     steps:
       - name: Set up Python environment
-      - uses: ./.github/actions/setup-env
+        uses: ./.github/actions/setup-env
 
       - name: Ruff lint
         run: uv run ruff check .
@@ -30,7 +30,7 @@ jobs:
 
     steps:
       - name: Set up Python environment
-      - uses: ./.github/actions/setup-env
+        uses: ./.github/actions/setup-env
 
       - name: Run tests
         run: uv run pytest
