@@ -340,6 +340,9 @@ $ hc config path [OPTIONS]
 
 ## Contributing
 
+> [!NOTE]  
+> After cloning the repository, make sure to install `tree-sitter-python` and `tree-sitter-javascript`, as they are required for running the tests. However, remember to remove them again before merging your changes.
+
 - More default language support is welcome. Please add the configuration to the [default config](https://github.com/EpicAlbin03/halstead-complexity/blob/main/src/halstead_complexity/default_config.json) and include the optional dependency in the [pyproject.toml](https://github.com/EpicAlbin03/halstead-complexity/blob/main/pyproject.toml).
 - For now the project is focused on Halstead complexity. But it could potentially be expanded to include other metrics such as cyclomatic complexity and maintainability index.
 
